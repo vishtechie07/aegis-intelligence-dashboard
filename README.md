@@ -1,89 +1,311 @@
 # Aegis Intelligence Engine
 
-Real-time competitor intelligence dashboard that ingests multi-source market signals, runs a 3-agent AI analysis pipeline, and streams prioritized insights to an operations UI.
+Real-time **competitor intelligence** platform: scheduled harvesters pull public market signals, a **three-stage Spring AI pipeline** filters and interprets them, and a **Vue 3** dashboard consumes insights via **Server-Sent Events (SSE)** and REST.
 
-## What This Project Demonstrates
+---
 
-- Production-style full-stack architecture (`Spring Boot + Vue + Postgres`)
-- Event-driven UX via Server-Sent Events (SSE) instead of polling
-- AI agent orchestration with fallback-safe execution semantics
-- Typed backend/frontend contracts (`Java records` <-> `TypeScript interfaces`)
-- Dockerized local environment with database migrations and health checks
+## Table of contents
 
-## Tech Stack
+- [Problem and outcome](#problem-and-outcome)
+- [Project scope](#project-scope)
+- [What this project demonstrates](#what-this-project-demonstrates)
+- [Tech stack](#tech-stack)
+- [Architecture](#architecture)
+- [Data and control flows](#data-and-control-flows)
+- [Repository structure](#repository-structure)
+- [Environment variables](#environment-variables)
+- [Quick start](#quick-start)
+- [API surface](#api-surface)
+- [Data model](#data-model)
+- [Development and testing](#development-and-testing)
+- [Operational notes](#operational-notes)
+- [Deploy on Render](#deploy-on-render)
+- [Future enhancements](#future-enhancements)
+
+---
+
+## Problem and outcome
+
+**Problem:** Product, strategy, and marketing teams need a single place to watch **competitive moves** (launches, hiring, partnerships, filings) without drowning in raw feeds.
+
+**Outcome:** Aegis **collects** heterogeneous sources into one schema, **reduces noise** with an LLM gate, **classifies and scores** threat, and **streams** results so operators see high-signal updates as they land—not after manual refresh.
+
+---
+
+## Project scope
+
+### In scope
+
+| Area | Description |
+|------|-------------|
+| **Ingestion** | Scheduled harvesters (RSS, GDELT, Reddit, Hacker News, SEC EDAR/EDGAR-style search, GitHub, Google News, financial/contract/industry feeds per `application.yml`). |
+| **Persistence** | Raw articles in PostgreSQL; Flyway-managed schema. |
+| **AI pipeline** | Noise canceler → market analyst (category) → strategist (threat 1–10 + advice); failures never break the chain. |
+| **Realtime UX** | SSE insight stream + REST for history, threats, deep-dive, competitors, harvest status, settings. |
+| **Configuration** | Env-based DB, OpenAI key (server + optional user override in UI), tracked competitors. |
+| **Local run** | Docker Compose (Postgres + API + Nginx SPA). |
+| **Cloud run** | Optional Render blueprint (`render.yaml`): managed Postgres, API image, static frontend. |
+
+### Out of scope (current release)
+
+| Area | Notes |
+|------|--------|
+| **Multi-tenant auth** | No built-in user accounts or RBAC; suitable for internal/single-team or demo. |
+| **SLA / HA** | Single API instance; no horizontal scaling story in-repo. |
+| **Source connectors as products** | New sources require code changes (harvester + config), not plug-in marketplace. |
+| **Long-term secret store** | User-saved OpenAI keys are runtime/in-browser patterns; server key via env is the durable default for production. |
+
+### Boundaries and assumptions
+
+- **OpenAI** is the configured LLM provider (Spring AI); agents degrade safely if the key is missing.
+- **CORS** is configurable via `AEGIS_CORS_ALLOWED_ORIGINS` (comma-separated patterns) for split-origin deploys (e.g. static site + API).
+- **Legal / ToS** of each external source are the operator’s responsibility; URLs and cadences live in configuration.
+
+---
+
+## What this project demonstrates
+
+- Full-stack **Java 21 + Spring Boot 3.4 (WebFlux)** with **Vue 3 + Vite + TypeScript**
+- **SSE-first** UI instead of polling-only dashboards
+- **Agent-shaped** orchestration with isolated `@Service` agents and safe fallbacks
+- **Contract alignment**: Java records ↔ TypeScript interfaces
+- **Infrastructure**: Docker Compose locally; **Blueprint** for Render (Postgres + API + static site)
+
+---
+
+## Tech stack
 
 | Layer | Technology |
-|---|---|
-| Backend | Java 21, Spring Boot 3.4, WebFlux, Spring AI |
+|-------|------------|
+| Backend | Java 21, Spring Boot 3.4, WebFlux, Spring AI (OpenAI), `@Async` orchestration |
 | Data | PostgreSQL 16, Spring Data JPA, Flyway |
 | Frontend | Vue 3 (`<script setup lang="ts">`), Vite, Pinia, Tailwind CSS |
-| Realtime | SSE (`Flux<ServerSentEvent<T>>` + Vue EventSource composable) |
-| Infrastructure | Docker Compose, Nginx (frontend container) |
-| Testing | JUnit 5 + AssertJ + Mockito (backend), Vitest + Playwright (frontend) |
+| Realtime | `Flux<ServerSentEvent<T>>`, Pinia + `useSse.ts` (`EventSource`) |
+| Local infra | Docker Compose, Nginx (frontend container proxies `/api` to backend) |
+| Cloud | Render: `render.yaml` (Postgres, Docker web service, static site) |
+| Testing | JUnit 5 + AssertJ + Mockito; Vitest; Playwright (e2e) |
 
-## System Architecture
+---
 
-```text
-External Signals
-  RSS / GDELT / SEC / Reddit / HackerNews / GitHub / Google News / Industry feeds
-        |
-        v
-Scheduled Harvesters (Spring)
-  - normalize source payloads
-  - save raw article to competitor_news
-        |
-        +--> Async Agent Orchestration (@Async)
-              1) NoiseCancelerAgent -> relevance gate
-              2) MarketAnalystAgent -> category classification
-              3) StrategistAgent    -> threat score + strategic advice
-                    |
-                    v
-              persist agent_insights
-                    |
-                    v
-              publish InsightEvent to Sinks.Many
-                    |
-                    v
-Frontend Dashboard (SSE subscription via Pinia store)
+## Architecture
+
+### High-level system context
+
+```mermaid
+flowchart LR
+  subgraph Sources["External data"]
+    RSS[RSS feeds]
+    GDELT[GDELT]
+    SEC[SEC / filings]
+    SOCIAL[Reddit / HN]
+    GH[GitHub]
+    GNEWS[Google News]
+    FIN[Financial / contracts / industry]
+  end
+
+  subgraph Aegis["Aegis platform"]
+    H[Harvesters scheduler]
+    PG[(PostgreSQL)]
+    ORCH[Agent orchestration]
+    API[Spring WebFlux API]
+    SSE[SSE publisher]
+  end
+
+  subgraph Clients["Clients"]
+    UI[Vue dashboard]
+  end
+
+  Sources --> H
+  H --> PG
+  H --> ORCH
+  ORCH --> PG
+  ORCH --> SSE
+  API --> PG
+  SSE --> API
+  UI <-- REST / SSE --> API
 ```
 
-## Core Pipeline Behavior
+### Logical layers (deployment view)
 
-1. Harvester persists raw data first for traceability.
-2. Orchestration runs asynchronously to avoid blocking ingestion.
-3. Agents are isolated services; failures degrade gracefully with safe defaults.
-4. Final insights are persisted and pushed to the live dashboard stream.
+```mermaid
+flowchart TB
+  subgraph Browser
+    SPA[Vue SPA]
+  end
 
-This gives durability (database), observability (history), and low-latency delivery (SSE).
+  subgraph Edge["Local: Nginx container"]
+    NGX[Nginx + static assets + /api proxy]
+  end
 
-## Repository Structure
+  subgraph App["Backend container"]
+    SB[Spring Boot]
+  end
+
+  subgraph Data
+    DB[(PostgreSQL)]
+  end
+
+  SPA --> NGX
+  NGX -->|"/api reverse proxy"| SB
+  SPA -->|Render: direct HTTPS to API| SB
+  SB --> DB
+```
+
+*Locally,* the browser hits `localhost:3000`; Nginx forwards `/api` to the backend. *On Render,* the static site is a separate URL; `VITE_API_BASE_URL` points the browser at the API for REST and SSE.
+
+### Component map (backend packages)
+
+```mermaid
+flowchart TB
+  subgraph Controllers
+    IC[InsightController]
+    SC[SettingsController]
+    CC[CompetitorController]
+    HC[HarvestStatusController]
+  end
+
+  subgraph Services
+    AOS[AgentOrchestrationService]
+    IS[InsightService]
+    CS[CompetitorService]
+    DS[DeepDiveService]
+  end
+
+  subgraph Agents
+    NC[NoiseCancelerAgent]
+    MA[MarketAnalystAgent]
+    ST[StrategistAgent]
+  end
+
+  subgraph Harvesters
+    HSET[Scheduled harvesters]
+  end
+
+  IC --> IS
+  SC --> DCP[DynamicChatClientProvider]
+  AOS --> NC
+  AOS --> MA
+  AOS --> ST
+  HSET --> AOS
+  IS --> PG[(Repositories)]
+  AOS --> PG
+```
+
+---
+
+## Data and control flows
+
+### End-to-end insight pipeline
+
+```mermaid
+sequenceDiagram
+  participant Cron as Scheduler
+  participant Harv as Harvester
+  participant DB as Postgres
+  participant Orch as Orchestration @Async
+  participant N as NoiseCanceler
+  participant M as MarketAnalyst
+  participant S as Strategist
+  participant Sink as InsightService / Sinks.Many
+  participant Client as Dashboard EventSource
+
+  Cron->>Harv: tick
+  Harv->>DB: save competitor_news
+  Harv->>Orch: processAsync(article, newsId)
+  Orch->>N: isRelevant?
+  alt not relevant
+    N-->>Orch: discard
+  else relevant
+    Orch->>M: categorize()
+    Orch->>S: analyze()
+    Orch->>DB: save agent_insights
+    Orch->>Sink: publish InsightEvent
+    Sink-->>Client: SSE insight
+  end
+```
+
+### User API key (server default vs override)
+
+```mermaid
+flowchart TD
+  START[Request needs ChatClient]
+  RT{Runtime key set?}
+  ENV{Env OPENAI_API_KEY valid?}
+  USE_RT[Use user key from Settings]
+  USE_ENV[Use server env key]
+  FAIL[ApiKeyNotConfigured]
+
+  START --> RT
+  RT -->|yes| USE_RT
+  RT -->|no| ENV
+  ENV -->|yes| USE_ENV
+  ENV -->|no| FAIL
+```
+
+Users can **PUT** `/api/settings/openai-key` to override; **DELETE** `/api/settings/openai-key` reverts to the server key when one exists (`configured` / `serverKeyAvailable` in `/api/settings/status`).
+
+---
+
+## Repository structure
 
 ```text
 .
-├─ backend/
-│  ├─ src/main/java/com/aegis/
-│  │  ├─ agent/        # AI analysis stages
-│  │  ├─ harvester/    # source-specific ingestion
-│  │  ├─ controller/   # REST + SSE endpoints
-│  │  ├─ service/      # orchestration/business logic
-│  │  ├─ entity/       # JPA entities
-│  │  └─ dto/          # Java record contracts
-│  └─ src/main/resources/db/migration/  # Flyway SQL migrations
-├─ frontend/
-│  ├─ src/components/  # dashboard UI (threat cards, feed, settings)
-│  ├─ src/stores/      # Pinia state for insights/settings/competitors
-│  ├─ src/composables/ # SSE connection logic
-│  └─ src/types/       # DTO mirrors of backend contracts
-└─ docker-compose.yml
+├── backend/
+│   ├── Dockerfile
+│   ├── pom.xml
+│   └── src/main/java/com/aegis/
+│       ├── agent/           # AI stages (noise, analyst, strategist)
+│       ├── config/          # CORS, WebClient, DynamicChatClientProvider, Render DB mapping
+│       ├── controller/      # REST + SSE
+│       ├── dto/             # Java records (API contracts)
+│       ├── entity/          # JPA entities
+│       ├── harvester/       # Source-specific ingestion
+│       ├── repository/
+│       ├── service/         # Orchestration, insights, competitors, deep-dive
+│       └── util/
+│   └── src/main/resources/
+│       ├── application.yml
+│       ├── application-local.yml   # optional local profile (H2)
+│       └── db/migration/             # Flyway
+├── frontend/
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   └── src/
+│       ├── components/
+│       ├── composables/useSse.ts
+│       ├── stores/
+│       ├── types/insight.ts
+│       └── views/
+├── docker-compose.yml
+├── render.yaml              # Render Blueprint
+└── .env.example
 ```
 
-## Quick Start
+---
+
+## Environment variables
+
+| Variable | Where | Purpose |
+|----------|-------|---------|
+| `POSTGRES_PASSWORD` | Docker Compose | DB password for local stack |
+| `OPENAI_API_KEY` | `.env`, Render | Server default OpenAI key |
+| `SPRING_AI_OPENAI_API_KEY` | optional | Alias fallback for Spring property |
+| `TRACKED_COMPETITORS` | optional | Comma-separated competitor names |
+| `DATABASE_URL` | Render | Set by blueprint; `RenderDatabaseEnvironmentPostProcessor` maps it to `spring.datasource.url` (JDBC). If auth fails, set `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` from the Render database dashboard or parse them from `DATABASE_URL` in config. |
+| `PORT` | Render / PaaS | HTTP listen port (`server.port`) |
+| `AEGIS_CORS_ALLOWED_ORIGINS` | Render / prod | Comma-separated origin patterns for browser clients |
+| `VITE_API_BASE_URL` | Frontend **build** | Public API base URL (e.g. `https://aegis-api.onrender.com`) |
+
+See `.env.example` for the canonical local template.
+
+---
+
+## Quick start
 
 ### Prerequisites
 
-- Docker Desktop (recommended path)
-- Or local runtimes: Java 21, Node 20+, PostgreSQL 16
-- API keys in `.env` (copy from `.env.example`)
+- **Docker Desktop** (recommended), or Java 21 + Node 20+ + PostgreSQL 16
+- **OpenAI API key** (for AI stages); configurable in `.env` or app Settings
 
 ### 1) Configure environment
 
@@ -91,40 +313,31 @@ This gives durability (database), observability (history), and low-latency deliv
 cp .env.example .env
 ```
 
-Set required values (at minimum):
+Edit `.env`: set at least `POSTGRES_PASSWORD` and `OPENAI_API_KEY` for a full local experience.
 
-- `POSTGRES_PASSWORD`
-- `OPENAI_API_KEY`
-- `NEWSAPI_KEY`
-
-Optional:
-
-- `TRACKED_COMPETITORS` (comma-separated)
-
-### 2) Run full stack with Docker
+### 2) Run full stack (Docker)
 
 ```bash
 docker compose up --build
 ```
 
-Services:
-
 | Service | URL |
-|---|---|
-| Frontend Dashboard | http://localhost:3000 |
-| Backend API | http://localhost:8080 |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| Backend | http://localhost:8080 |
 | Postgres | localhost:5432 |
 
-### 3) Run locally (without Docker)
+### 3) Run without Docker
 
-Backend:
+**Backend** (Postgres must be running and match `application.yml` defaults or env):
 
 ```bash
 cd backend
-./mvnw spring-boot:run
+mvn spring-boot:run
+# or: ./mvnw spring-boot:run  (if wrapper present)
 ```
 
-Frontend:
+**Frontend:**
 
 ```bash
 cd frontend
@@ -132,70 +345,122 @@ npm install
 npm run dev
 ```
 
-## API Surface
+Vite dev server proxies `/api` to `http://localhost:8080` (see `vite.config.ts`).
+
+---
+
+## API surface
 
 | Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/api/insights/stream` | Realtime SSE stream of processed insights |
-| `GET` | `/api/insights/latest?limit=20` | Paginated latest insights |
-| `GET` | `/api/insights/threats?minLevel=7` | Filter high-threat intelligence |
-| `POST` | `/api/insights/deep-dive` | Follow-up analysis for a specific news item |
-| `GET` | `/actuator/health` | Service health and readiness |
+|--------|----------|---------|
+| `GET` | `/api/insights/stream` | SSE stream of insights |
+| `GET` | `/api/insights/latest?limit=20` | Recent insights |
+| `GET` | `/api/insights/threats?minLevel=7` | Higher-threat filter |
+| `POST` | `/api/insights/deep-dive` | LLM deep-dive on a news item |
+| `GET` | `/api/settings/status` | OpenAI configuration flags |
+| `PUT` | `/api/settings/openai-key` | Set runtime user key |
+| `DELETE` | `/api/settings/openai-key` | Clear user key (revert to server key if set) |
+| `GET` | `/actuator/health` | Liveness (Render / load balancers) |
 
-Example deep-dive payload:
+Example deep-dive body:
 
 ```json
 {
   "newsId": 123,
-  "question": "What does this move imply for our enterprise pricing strategy?"
+  "question": "What does this imply for enterprise pricing?"
 }
 ```
 
-## Data Model
+Additional routes exist for competitors and harvest status—see `backend/.../controller/`.
 
-Primary tables:
+---
 
-- `competitor_news`: normalized raw harvest output
-- `agent_insights`: AI-enriched strategic records referencing `competitor_news`
-- `deep_dive_log`: persisted follow-up analysis interactions
+## Data model
 
-Schema evolution is managed via Flyway migrations in `backend/src/main/resources/db/migration`.
+| Table | Role |
+|-------|------|
+| `competitor_news` | Normalized raw harvest rows |
+| `agent_insights` | AI output linked to `competitor_news` |
+| `deep_dive_log` | Stored deep-dive requests / history |
 
-## Development and Testing
+Migrations: `backend/src/main/resources/db/migration/`.
 
-Backend tests:
+---
 
-```bash
-cd backend
-./mvnw test
-```
-
-Frontend unit tests:
+## Development and testing
 
 ```bash
-cd frontend
-npm run test
+# Backend
+cd backend && mvn test
+
+# Frontend unit
+cd frontend && npm run test
+
+# Frontend e2e
+cd frontend && npm run test:e2e
 ```
 
-Frontend e2e smoke tests:
+---
 
-```bash
-cd frontend
-npm run test:e2e
-```
+## Operational notes
 
-## Operational Notes
+- Compose orders **backend after Postgres healthy** to avoid Flyway races.
+- Harvesters **self-heal**: bad upstream keys or HTTP errors are logged; the next cron tick retries.
+- **SSE** delivery uses a central reactive sink (`Sinks.Many`) as the hot path after persistence.
+- **Free Render** tiers may spin down the API—scheduled harvests and long-lived SSE pause until the service wakes.
 
-- Backend startup is ordered after Postgres health in `docker-compose.yml` to prevent migration races.
-- Harvesters are resilient: API/auth failures are logged, skipped, and retried on next schedule.
-- SSE uses a central publisher sink (`Sinks.Many`) as the realtime source of truth.
+---
 
-## Why This Is Useful
+## Deploy on Render
 
-Most intelligence dashboards stop at data collection. Aegis adds an AI interpretation layer that turns raw news into:
+Blueprint file: **`render.yaml`**.
 
-- relevance-filtered events,
-- categorized competitive signals,
-- threat-scored strategic actions,
+| Resource | Name | Role |
+|----------|------|------|
+| PostgreSQL | `aegis-db` | Application database |
+| Web Service | `aegis-api` | Docker image from `backend/`, healthcheck `/actuator/health` |
+| Static Site | `aegis-dashboard` | `npm ci && npm run build`, publish `dist` |
 
-then delivers that stream in real time to support faster product and go-to-market decisions.
+### Steps
+
+1. Push this repo to GitHub (or Git provider Render supports).
+2. Render → **New** → **Blueprint** → select repo.
+3. Provide **`OPENAI_API_KEY`** when prompted (`sync: false` in blueprint).
+4. First API build may take several minutes (Maven).
+
+### URLs and CORS
+
+- Default pattern: `https://aegis-api.onrender.com` and `https://aegis-dashboard.onrender.com` (actual hostnames may include service suffixes—check the dashboard).
+- **`AEGIS_CORS_ALLOWED_ORIGINS`** should include your static site origin so browsers can call the API with credentials if used; the blueprint may wire this from the dashboard service URL.
+
+### API keys on Render
+
+- **Server:** `OPENAI_API_KEY` in the API service.
+- **User override:** same as local—Settings in UI; DELETE reverts to server key when available.
+
+---
+
+## Future enhancements
+
+| Idea | Benefit |
+|------|---------|
+| **AuthN / multi-tenant** | Per-tenant competitor lists and insight isolation; OAuth2 or API keys for B2B. |
+| **Job queue** | Move heavy harvest + agent work off the web thread entirely (e.g. Redis/SQS) for burst handling. |
+| **Observability** | Structured logging correlation IDs, metrics (Micrometer + Prometheus), tracing (OpenTelemetry). |
+| **Retriever / RAG** | Ground strategic answers in internal docs + harvested corpus (vector store). |
+| **Connector SDK** | Declarative source config (YAML) with shared `HarvesterSupport` patterns to add feeds without a new class each time. |
+| **Alerting** | Webhooks or email when `threatLevel` crosses thresholds or for specific categories. |
+| **Billing / quotas** | Per-key rate limits and usage dashboards for shared deployments. |
+| **Hardening** | Stricter CORS allowlist, secret rotation, dependency audit in CI. |
+
+---
+
+## Why this project matters
+
+Raw feeds are cheap; **decisions** are expensive. Aegis compresses signal by combining durable storage, **structured LLM stages**, and a **live** UI so teams react to competitor moves with context—not noise.
+
+---
+
+## License and contributing
+
+Add a `LICENSE` and contribution guidelines if you open-source the repo; align with your organization’s policy.
