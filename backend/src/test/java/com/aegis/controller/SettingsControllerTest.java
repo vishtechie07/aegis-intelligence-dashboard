@@ -23,19 +23,22 @@ class SettingsControllerTest {
     void getStatus_returnsConfiguredFalseByDefault() {
         when(provider.isConfigured()).thenReturn(false);
         when(provider.isRuntimeKeySet()).thenReturn(false);
+        when(provider.isServerKeyAvailable()).thenReturn(false);
 
         client.get().uri("/api/settings/status")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.configured").isEqualTo(false)
-                .jsonPath("$.runtimeKeySet").isEqualTo(false);
+                .jsonPath("$.runtimeKeySet").isEqualTo(false)
+                .jsonPath("$.serverKeyAvailable").isEqualTo(false);
     }
 
     @Test
     void getStatus_returnsConfiguredTrueWhenKeySet() {
         when(provider.isConfigured()).thenReturn(true);
         when(provider.isRuntimeKeySet()).thenReturn(true);
+        when(provider.isServerKeyAvailable()).thenReturn(true);
 
         client.get().uri("/api/settings/status")
                 .exchange()
@@ -99,5 +102,18 @@ class SettingsControllerTest {
                         """)
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void clearKey_revertsToServerKey() {
+        when(provider.isConfigured()).thenReturn(true);
+
+        client.delete().uri("/api/settings/openai-key")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.status").isNotEmpty();
+
+        verify(provider).clearRuntimeKey();
     }
 }

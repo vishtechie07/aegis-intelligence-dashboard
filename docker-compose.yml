@@ -34,6 +34,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/aegis
       SPRING_DATASOURCE_USERNAME: aegis
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aegis_secret}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SPRING_AI_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AEGIS_TRACKED_COMPETITORS: ${TRACKED_COMPETITORS:-Microsoft,Google,Amazon,OpenAI,Anthropic}
     env_file:

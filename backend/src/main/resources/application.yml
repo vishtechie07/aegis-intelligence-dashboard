@@ -29,7 +29,7 @@ spring:
 
   ai:
     openai:
-      api-key: ${SPRING_AI_OPENAI_API_KEY:}
+      api-key: ${OPENAI_API_KEY:${SPRING_AI_OPENAI_API_KEY:}}
       chat:
         options:
           model: gpt-4o-mini
@@ -41,11 +41,22 @@ spring:
     time-zone: UTC
 
 server:
-  port: 8080
+  port: ${PORT:8080}
   compression:
     enabled: true
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
 aegis:
+  cors:
+    allowed-origins: ${AEGIS_CORS_ALLOWED_ORIGINS:*}
   harvest:
     competitors: ${AEGIS_TRACKED_COMPETITORS:Microsoft,Google,Amazon,OpenAI,Anthropic}
 

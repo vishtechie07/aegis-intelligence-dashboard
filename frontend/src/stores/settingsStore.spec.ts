@@ -87,14 +87,23 @@ describe('settingsStore', () => {
   })
 
   it('clearKey removes from localStorage and resets state', async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
-      ok: true,
-      text: async () => JSON.stringify({ status: 'Key accepted' }),
-    } as Response)
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ status: 'Key accepted' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => JSON.stringify({ status: 'Reverted to server default API key' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ configured: false, runtimeKeySet: false, serverKeyAvailable: false }),
+      } as Response)
 
     const store = useSettingsStore()
     await store.saveKey('sk-proj-somekey')
-    store.clearKey()
+    await store.clearKey()
 
     expect(store.isConfigured).toBe(false)
     expect(store.isRuntimeKey).toBe(false)
@@ -106,7 +115,7 @@ describe('settingsStore', () => {
   it('checkStatus updates isConfigured from backend response', async () => {
     vi.mocked(globalThis.fetch).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ configured: true, runtimeKeySet: false }),
+      json: async () => ({ configured: true, runtimeKeySet: false, serverKeyAvailable: true }),
     } as Response)
 
     const store = useSettingsStore()

@@ -15,6 +15,7 @@ function getApiUrl(path: string): string {
 export const useSettingsStore = defineStore('settings', () => {
   const isConfigured = ref(false)
   const isRuntimeKey = ref(false)
+  const serverKeyAvailable = ref(false)
   const isSaving = ref(false)
   const error = ref<string | null>(null)
   const successMessage = ref<string | null>(null)
@@ -47,6 +48,7 @@ export const useSettingsStore = defineStore('settings', () => {
         const data = await res.json()
         isConfigured.value = data.configured
         isRuntimeKey.value = data.runtimeKeySet
+        serverKeyAvailable.value = Boolean(data.serverKeyAvailable)
       }
     } catch { /* ignore */ }
   }
@@ -112,13 +114,24 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  function clearKey() {
+  async function clearKey() {
     localStorage.removeItem(STORAGE_KEY)
     localStorage.removeItem(REMEMBER_FLAG)
     sessionStorage.removeItem(SESSION_KEY)
-    isConfigured.value = false
-    isRuntimeKey.value = false
-    successMessage.value = null
+    error.value = null
+    try {
+      const res = await fetch(getApiUrl('/settings/openai-key'), { method: 'DELETE' })
+      if (res.ok) {
+        const data = await res.json()
+        successMessage.value = data.status ?? null
+      }
+    } catch {
+      /* ignore */
+    }
+    await checkStatus()
+    if (!isConfigured.value) {
+      successMessage.value = null
+    }
   }
 
   /** Whether the UI should default the “remember key” checkbox to checked */
@@ -129,6 +142,7 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     isConfigured,
     isRuntimeKey,
+    serverKeyAvailable,
     isSaving,
     error,
     successMessage,

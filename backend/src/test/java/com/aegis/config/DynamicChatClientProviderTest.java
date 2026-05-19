@@ -58,4 +58,33 @@ class DynamicChatClientProviderTest {
         assertThat(provider.get()).isNotSameAs(originalClient);
         assertThat(provider.isRuntimeKeySet()).isTrue();
     }
+
+    @Test
+    void clearRuntimeKey_revertsToEnvironmentClient() {
+        ChatModel model = mock(ChatModel.class);
+        DynamicChatClientProvider provider = new DynamicChatClientProvider("sk-env-key", model);
+        var envClient = provider.get();
+
+        provider.updateKey("sk-proj-newkey1234567890");
+        assertThat(provider.isRuntimeKeySet()).isTrue();
+
+        provider.clearRuntimeKey();
+
+        assertThat(provider.isRuntimeKeySet()).isFalse();
+        assertThat(provider.isConfigured()).isTrue();
+        assertThat(provider.isServerKeyAvailable()).isTrue();
+        assertThat(provider.get()).isSameAs(envClient);
+    }
+
+    @Test
+    void clearRuntimeKey_unconfiguredWhenNoEnvironmentKey() {
+        DynamicChatClientProvider provider = new DynamicChatClientProvider("", null);
+        provider.updateKey("sk-proj-newkey1234567890");
+        assertThat(provider.isConfigured()).isTrue();
+
+        provider.clearRuntimeKey();
+
+        assertThat(provider.isConfigured()).isFalse();
+        assertThat(provider.isRuntimeKeySet()).isFalse();
+    }
 }
