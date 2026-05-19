@@ -44,7 +44,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | **Realtime UX** | SSE insight stream + REST for history, threats, deep-dive, competitors, harvest status, settings. |
 | **Configuration** | Env-based DB, OpenAI key (server + optional user override in UI), tracked competitors. |
 | **Local run** | Docker Compose (Postgres + API + Nginx SPA). |
-| **Cloud run** | Optional Render blueprint (`render.yaml`): managed Postgres, API image, static frontend. |
+| **Cloud run** | Render blueprint (`render.yaml`): API + static site; **Neon** for Postgres. |
 
 ### Out of scope (current release)
 
@@ -82,7 +82,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | Frontend | Vue 3 (`<script setup lang="ts">`), Vite, Pinia, Tailwind CSS |
 | Realtime | `Flux<ServerSentEvent<T>>`, Pinia + `useSse.ts` (`EventSource`) |
 | Local infra | Docker Compose, Nginx (frontend container proxies `/api` to backend) |
-| Cloud | Render: `render.yaml` (Postgres, Docker web service, static site) |
+| Cloud | Render (`render.yaml`) + Neon Postgres |
 | Testing | JUnit 5 + AssertJ + Mockito; Vitest; Playwright (e2e) |
 
 ---
@@ -291,7 +291,7 @@ Users can **PUT** `/api/settings/openai-key` to override; **DELETE** `/api/setti
 | `OPENAI_API_KEY` | `.env`, Render | Server default OpenAI key |
 | `SPRING_AI_OPENAI_API_KEY` | optional | Alias fallback for Spring property |
 | `TRACKED_COMPETITORS` | optional | Comma-separated competitor names |
-| `DATABASE_URL` | Render | Set by blueprint; `RenderDatabaseEnvironmentPostProcessor` maps it to `spring.datasource.url` (JDBC). If auth fails, set `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` from the Render database dashboard or parse them from `DATABASE_URL` in config. |
+| `DATABASE_URL` | Neon → Render `aegis-api` | Full connection string from Neon (pooled URL recommended). Mapped to JDBC via `RenderDatabaseEnvironmentPostProcessor`. |
 | `PORT` | Render / PaaS | HTTP listen port (`server.port`) |
 | `AEGIS_CORS_ALLOWED_ORIGINS` | Render / prod | Comma-separated origin patterns for browser clients |
 | `VITE_API_BASE_URL` | Frontend **build** | Public API base URL (e.g. `https://aegis-api.onrender.com`) |
@@ -411,32 +411,37 @@ cd frontend && npm run test:e2e
 
 ---
 
-## Deploy on Render
+## Deploy on Render (with Neon)
 
-Blueprint file: **`render.yaml`**.
+**Database:** [Neon](https://neon.tech) Postgres (free tier is fine). **Apps:** Render via **`render.yaml`** (no Render Postgres — avoids the one-free-DB-per-account limit).
 
-| Resource | Name | Role |
-|----------|------|------|
-| PostgreSQL | `aegis-db` | Application database |
-| Web Service | `aegis-api` | Docker image from `backend/`, healthcheck `/actuator/health` |
-| Static Site | `aegis-dashboard` | `npm ci && npm run build`, publish `dist` |
+| Resource | Where | Role |
+|----------|--------|------|
+| Postgres | **Neon** project (e.g. `aegis-db`) | Data storage; Flyway runs on API startup |
+| Web Service | Render `aegis-api` | Docker image from `backend/` |
+| Static Site | Render `aegis-dashboard` | Vue build → `dist` |
 
 ### Steps
 
-1. Push this repo to GitHub (or Git provider Render supports).
-2. Render → **New** → **Blueprint** → select repo.
-3. Provide **`OPENAI_API_KEY`** when prompted (`sync: false` in blueprint).
-4. First API build may take several minutes (Maven).
+1. **Neon:** Create a project → copy **pooled** connection string → keep secret (never commit).
+2. **GitHub:** Push this repo.
+3. **Render:** **New** → **Blueprint** → select repo.
+4. When prompted, set:
+   - **`DATABASE_URL`** — Neon connection string
+   - **`OPENAI_API_KEY`** — team default OpenAI key
+5. Wait for deploy (first API Docker build may take several minutes).
+6. Open the dashboard URL; optional Settings override for OpenAI key.
 
 ### URLs and CORS
 
-- Default pattern: `https://aegis-api.onrender.com` and `https://aegis-dashboard.onrender.com` (actual hostnames may include service suffixes—check the dashboard).
-- **`AEGIS_CORS_ALLOWED_ORIGINS`** should include your static site origin so browsers can call the API with credentials if used; the blueprint may wire this from the dashboard service URL.
+- API: `https://aegis-api.onrender.com` (your actual hostname may differ)
+- Dashboard: `https://aegis-dashboard.onrender.com`
+- Blueprint sets `AEGIS_CORS_ALLOWED_ORIGINS` to `https://*.onrender.com` for cross-origin API calls from the static site.
 
 ### API keys on Render
 
-- **Server:** `OPENAI_API_KEY` in the API service.
-- **User override:** same as local—Settings in UI; DELETE reverts to server key when available.
+- **Server:** `OPENAI_API_KEY` on `aegis-api`.
+- **User override:** Settings in UI; DELETE reverts to server key when available.
 
 ---
 
