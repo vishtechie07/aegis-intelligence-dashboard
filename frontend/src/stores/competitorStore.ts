@@ -1,6 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+
+function getApiUrl(path: string): string {
+  const base = API_BASE.replace(/\/$/, '')
+  return `${base}/api${path.startsWith('/') ? path : '/' + path}`
+}
+
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
@@ -25,7 +32,7 @@ export const useCompetitorStore = defineStore('competitors', () => {
     loading.value = true
     error.value = null
     try {
-      const r = await fetch('/api/competitors')
+      const r = await fetch(getApiUrl('/competitors'))
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       list.value = await r.json()
     } catch (e: unknown) {
@@ -38,7 +45,7 @@ export const useCompetitorStore = defineStore('competitors', () => {
   async function add(competitor: Competitor): Promise<boolean> {
     error.value = null
     try {
-      const r = await fetch('/api/competitors', {
+      const r = await fetch(getApiUrl('/competitors'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(competitor),
@@ -55,7 +62,7 @@ export const useCompetitorStore = defineStore('competitors', () => {
   async function remove(name: string): Promise<boolean> {
     error.value = null
     try {
-      const r = await fetch(`/api/competitors/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      const r = await fetch(getApiUrl(`/competitors/${encodeURIComponent(name)}`), { method: 'DELETE' })
       if (!r.ok && r.status !== 404) throw new Error(`HTTP ${r.status}`)
       list.value = list.value.filter(c => c.name !== name)
       return true
@@ -72,7 +79,7 @@ export const useCompetitorStore = defineStore('competitors', () => {
     try {
       const params = new URLSearchParams({ name })
       if (country) params.set('country', country)
-      const r = await fetch(`/api/competitors/lookup?${params}`)
+      const r = await fetch(`${getApiUrl('/competitors/lookup')}?${params}`)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       lookupResult.value = await r.json()
       return lookupResult.value
