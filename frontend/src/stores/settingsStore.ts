@@ -1,5 +1,14 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { aegisSessionHeaders } from '@/composables/useAegisSession'
+
+export interface DemoQuotaStatus {
+  trialEnabled: boolean
+  usingHostedKey: boolean
+  requiresUserKey: boolean
+  trialMinutes: number
+  secondsRemaining: number
+}
 
 const STORAGE_KEY = 'aegis_openai_key'
 const SESSION_KEY = 'aegis_openai_key_session'
@@ -20,6 +29,17 @@ export const useSettingsStore = defineStore('settings', () => {
   const error = ref<string | null>(null)
   const successMessage = ref<string | null>(null)
   const aiKeyIssueBanner = ref<string | null>(null)
+  const demoQuota = ref<DemoQuotaStatus | null>(null)
+
+  const demoQuotaHint = computed(() => {
+    const q = demoQuota.value
+    if (!q?.trialEnabled || !q.usingHostedKey || q.requiresUserKey) return null
+    const min = Math.ceil(q.secondsRemaining / 60)
+    const sec = q.secondsRemaining % 60
+    const time =
+      min > 0 ? `${min} min${min !== 1 ? 's' : ''}${sec > 0 ? ` ${sec}s` : ''}` : `${sec}s`
+    return `Hosted AI demo: ${time} left for Ask Agent & AI Lookup — then add your own key.`
+  })
 
   function dismissAiKeyIssue() {
     aiKeyIssueBanner.value = null
@@ -43,12 +63,13 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function checkStatus() {
     try {
-      const res = await fetch(getApiUrl('/settings/status'))
+      const res = await fetch(getApiUrl('/settings/status'), { headers: aegisSessionHeaders() })
       if (res.ok) {
         const data = await res.json()
         isConfigured.value = data.configured
         isRuntimeKey.value = data.runtimeKeySet
         serverKeyAvailable.value = Boolean(data.serverKeyAvailable)
+        demoQuota.value = data.demoQuota ?? null
       }
     } catch { /* ignore */ }
   }
@@ -60,7 +81,7 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       const res = await fetch(getApiUrl('/settings/openai-key'), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aegisSessionHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ apiKey }),
       })
       const text = await res.text()
@@ -120,7 +141,10 @@ export const useSettingsStore = defineStore('settings', () => {
     sessionStorage.removeItem(SESSION_KEY)
     error.value = null
     try {
-      const res = await fetch(getApiUrl('/settings/openai-key'), { method: 'DELETE' })
+      const res = await fetch(getApiUrl('/settings/openai-key'), {
+        method: 'DELETE',
+        headers: aegisSessionHeaders(),
+      })
       if (res.ok) {
         const data = await res.json()
         successMessage.value = data.status ?? null
@@ -147,6 +171,8 @@ export const useSettingsStore = defineStore('settings', () => {
     error,
     successMessage,
     aiKeyIssueBanner,
+    demoQuota,
+    demoQuotaHint,
     checkStatus,
     saveKey,
     restoreFromStorage,

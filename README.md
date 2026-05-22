@@ -53,12 +53,13 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | **Multi-tenant auth** | No built-in user accounts or RBAC; suitable for internal/single-team or demo. |
 | **SLA / HA** | Single API instance; no horizontal scaling story in-repo. |
 | **Source connectors as products** | New sources require code changes (harvester + config), not plug-in marketplace. |
-| **Long-term secret store** | User-saved OpenAI keys are runtime/in-browser patterns; server key via env is the durable default for production. |
+| **Long-term secret store** | User BYOK keys are per-browser-session on the API (in-memory); optional browser storage. Server `OPENAI_API_KEY` is the durable default for harvest + demo. |
 
 ### Boundaries and assumptions
 
 - **OpenAI** is the configured LLM provider (Spring AI); agents degrade safely if the key is missing.
-- **CORS** is configurable via `AEGIS_CORS_ALLOWED_ORIGINS` (comma-separated patterns) for split-origin deploys (e.g. static site + API).
+- **CORS** is configurable via `AEGIS_CORS_ALLOWED_ORIGINS` — use your **exact** dashboard origin in production (not `*`).
+- **Public demo:** hosted-key trial is bound to `X-Aegis-Session` + client IP; interactive endpoints are rate-limited. Competitor list mutations can be disabled via `AEGIS_COMPETITORS_MUTATIONS_ENABLED=false` (set in `render.yaml`).
 - **Legal / ToS** of each external source are the operator’s responsibility; URLs and cadences live in configuration.
 
 ---
@@ -294,6 +295,9 @@ Users can **PUT** `/api/settings/openai-key` to override; **DELETE** `/api/setti
 | `DATABASE_URL` | Neon → Render `aegis-api` | Full connection string from Neon (pooled URL recommended). Mapped to JDBC via `RenderDatabaseEnvironmentPostProcessor`. |
 | `PORT` | Render / PaaS | HTTP listen port (`server.port`) |
 | `AEGIS_CORS_ALLOWED_ORIGINS` | Render / prod | Comma-separated origin patterns for browser clients |
+| `AEGIS_COMPETITORS_MUTATIONS_ENABLED` | Render / prod | `false` disables POST/DELETE competitors (Blueprint default) |
+| `AEGIS_INTERACTIVE_MAX_PER_MINUTE` | Render / prod | Rate limit for Ask Agent + AI Lookup per session/IP (default `30`) |
+| `AEGIS_DEMO_TRIAL_MINUTES` | optional | Hosted-key demo length (default `5`) |
 | `VITE_API_BASE_URL` | Frontend **build** | Public API base URL (e.g. `https://aegis-api.onrender.com`) |
 
 See `.env.example` for the canonical local template.
@@ -436,12 +440,12 @@ cd frontend && npm run test:e2e
 
 - API: `https://aegis-api.onrender.com` (your actual hostname may differ)
 - Dashboard: `https://aegis-dashboard.onrender.com`
-- Blueprint sets `AEGIS_CORS_ALLOWED_ORIGINS` to `https://*.onrender.com` for cross-origin API calls from the static site.
+- After first deploy, set `AEGIS_CORS_ALLOWED_ORIGINS` to your **exact** dashboard URL (Blueprint starts with `https://*.onrender.com` for convenience).
 
 ### API keys on Render
 
-- **Server:** `OPENAI_API_KEY` on `aegis-api`.
-- **User override:** Settings in UI; DELETE reverts to server key when available.
+- **Server:** `OPENAI_API_KEY` on `aegis-api` (harvest pipeline + hosted demo).
+- **User BYOK:** Settings sends key with `X-Aegis-Session`; stored **per session** on the API (not global). DELETE clears only that session’s override.
 
 ---
 

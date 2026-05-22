@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { aegisSessionHeaders } from '@/composables/useAegisSession'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -32,7 +33,7 @@ export const useCompetitorStore = defineStore('competitors', () => {
     loading.value = true
     error.value = null
     try {
-      const r = await fetch(getApiUrl('/competitors'))
+      const r = await fetch(getApiUrl('/competitors'), { headers: aegisSessionHeaders() })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       list.value = await r.json()
     } catch (e: unknown) {
@@ -47,7 +48,7 @@ export const useCompetitorStore = defineStore('competitors', () => {
     try {
       const r = await fetch(getApiUrl('/competitors'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aegisSessionHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(competitor),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -62,7 +63,10 @@ export const useCompetitorStore = defineStore('competitors', () => {
   async function remove(name: string): Promise<boolean> {
     error.value = null
     try {
-      const r = await fetch(getApiUrl(`/competitors/${encodeURIComponent(name)}`), { method: 'DELETE' })
+      const r = await fetch(getApiUrl(`/competitors/${encodeURIComponent(name)}`), {
+        method: 'DELETE',
+        headers: aegisSessionHeaders(),
+      })
       if (!r.ok && r.status !== 404) throw new Error(`HTTP ${r.status}`)
       list.value = list.value.filter(c => c.name !== name)
       return true
@@ -79,7 +83,13 @@ export const useCompetitorStore = defineStore('competitors', () => {
     try {
       const params = new URLSearchParams({ name })
       if (country) params.set('country', country)
-      const r = await fetch(`${getApiUrl('/competitors/lookup')}?${params}`)
+      const r = await fetch(`${getApiUrl('/competitors/lookup')}?${params}`, {
+        headers: aegisSessionHeaders(),
+      })
+      if (r.status === 402) {
+        const data = await r.json().catch(() => ({})) as { error?: string }
+        throw new Error(data.error ?? 'Demo ended — add your OpenAI key in Settings.')
+      }
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       lookupResult.value = await r.json()
       return lookupResult.value

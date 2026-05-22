@@ -1,10 +1,67 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 const emit = defineEmits<{ close: [] }>()
 
 const settings = useSettingsStore()
+
+const aiStatusActive = computed(() => settings.isConfigured)
+const aiStatusMessage = computed(() => {
+  if (settings.isRuntimeKey) return 'AI active — using your OpenAI key'
+  if (settings.serverKeyAvailable) {
+    return 'AI active — using hosted key on this deployment'
+  }
+  return 'AI inactive — add your OpenAI key below'
+})
+
+const showHostedDemo = computed(() => {
+  const q = settings.demoQuota
+  return Boolean(q?.trialEnabled && q.usingHostedKey && !settings.isRuntimeKey)
+})
+
+const demoSecondsLeft = ref(0)
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+function syncDemoSecondsFromStore() {
+  const q = settings.demoQuota
+  if (q && q.trialEnabled && q.usingHostedKey && !settings.isRuntimeKey) {
+    demoSecondsLeft.value = Math.max(0, q.secondsRemaining)
+  }
+}
+
+const demoTrialExpired = computed(() => {
+  if (!showHostedDemo.value) return false
+  if (settings.demoQuota?.requiresUserKey) return true
+  return demoSecondsLeft.value <= 0
+})
+
+const demoTrialCountdown = computed(() => {
+  if (demoTrialExpired.value) return null
+  const m = Math.floor(demoSecondsLeft.value / 60)
+  const s = demoSecondsLeft.value % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+})
+
+watch(() => settings.demoQuota, syncDemoSecondsFromStore, { deep: true })
+
+onMounted(async () => {
+  await settings.checkStatus()
+  syncDemoSecondsFromStore()
+  countdownTimer = setInterval(() => {
+    if (!showHostedDemo.value || demoTrialExpired.value) return
+    if (demoSecondsLeft.value > 0) {
+      demoSecondsLeft.value--
+    }
+    if (demoSecondsLeft.value === 0) {
+      void settings.checkStatus()
+    }
+  }, 1000)
+})
+
+onUnmounted(() => {
+  if (countdownTimer) clearInterval(countdownTimer)
+})
 
 const keyInput = ref('')
 const showKey = ref(false)
@@ -58,14 +115,39 @@ function handleKeydown(e: KeyboardEvent) {
         <div class="flex items-center gap-2 rounded-lg bg-gray-800/60 px-4 py-3 ring-1 ring-gray-700">
           <span
             class="inline-block size-2 shrink-0 rounded-full"
-            :class="settings.isRuntimeKey ? 'bg-green-400' : 'bg-red-500'"
+            :class="aiStatusActive ? 'bg-green-400' : 'bg-red-500'"
           />
-          <span class="text-sm" :class="settings.isRuntimeKey ? 'text-green-300' : 'text-red-300'">
-            {{ settings.isRuntimeKey
-              ? 'AI agents active — key set via Settings'
-              : 'AI agents inactive — enter your OpenAI key below'
-            }}
+          <span class="text-sm" :class="aiStatusActive ? 'text-green-300' : 'text-red-300'">
+            {{ aiStatusMessage }}
           </span>
+        </div>
+
+        <div
+          v-if="showHostedDemo"
+          class="rounded-lg px-4 py-3 ring-1"
+          :class="demoTrialExpired
+            ? 'bg-amber-950/40 ring-amber-800/50'
+            : 'bg-blue-950/30 ring-blue-800/40'"
+        >
+          <p class="text-xs font-medium" :class="demoTrialExpired ? 'text-amber-200' : 'text-blue-200'">
+            {{ demoTrialExpired ? 'Hosted AI demo ended' : 'Hosted AI demo (Ask Agent & AI Lookup)' }}
+          </p>
+          <p
+            v-if="!demoTrialExpired && demoTrialCountdown"
+            class="mt-1 font-mono text-lg font-semibold tabular-nums text-white"
+          >
+            {{ demoTrialCountdown }}
+            <span class="text-sm font-normal text-gray-400">
+              remaining of {{ settings.demoQuota?.trialMinutes ?? 5 }} min
+            </span>
+          </p>
+          <p class="mt-1.5 text-xs" :class="demoTrialExpired ? 'text-amber-200/90' : 'text-gray-400'">
+            {{
+              demoTrialExpired
+                ? 'Add your OpenAI key below to keep using Ask Agent and AI Lookup on your own quota.'
+                : 'News analysis uses the hosted key. After the timer, interactive AI features need your own key.'
+            }}
+          </p>
         </div>
 
         <div>
@@ -106,10 +188,7 @@ function handleKeydown(e: KeyboardEvent) {
             Get your key at
             <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener"
                class="text-blue-500 hover:underline">platform.openai.com/api-keys</a>.
-            Sent only to your backend — not to third parties.
-          </p>
-          <p class="mt-1 text-xs text-gray-500">
-            Use the app at <strong>http://localhost:5173</strong> (Vite dev server) so <code class="rounded bg-gray-800 px-0.5">/api</code> is proxied to the backend on port 8080.
+            Saved through your Aegis API only. Your server uses it to call OpenAI — not for news or other data sources.
           </p>
         </div>
 

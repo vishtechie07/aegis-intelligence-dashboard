@@ -18,8 +18,13 @@ services:
         sync: false
       - key: AEGIS_TRACKED_COMPETITORS
         value: Microsoft,Google,Amazon,OpenAI,Anthropic
+      # Set to your exact dashboard URL after first deploy, e.g. https://aegis-dashboard-xxxx.onrender.com
       - key: AEGIS_CORS_ALLOWED_ORIGINS
         value: https://*.onrender.com
+      - key: AEGIS_COMPETITORS_MUTATIONS_ENABLED
+        value: "false"
+      - key: AEGIS_INTERACTIVE_MAX_PER_MINUTE
+        value: "30"
 
   - type: web
     name: aegis-dashboard

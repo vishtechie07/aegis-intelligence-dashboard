@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { aegisSessionHeaders } from '@/composables/useAegisSession'
+import { useSettingsStore } from '@/stores/settingsStore'
 import type { Insight, DeepDiveRequest, DeepDiveResponse, DeepDiveHistoryEntry } from '@/types/insight'
 
 const props = defineProps<{ insight: Insight }>()
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+const settings = useSettingsStore()
 
 const KNOWN_COMPETITOR_BORDERS: { test: (n: string) => boolean; cls: string }[] = [
   { test: n => /\bopenai\b/i.test(n), cls: 'border-emerald-400' },
@@ -206,11 +209,21 @@ async function submitDeepDive() {
     const body: DeepDiveRequest = { newsId: props.insight.newsId, question: deepDiveQuestion.value }
     const res = await fetch(`${API_BASE}/api/insights/deep-dive`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: aegisSessionHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     })
-    const data: DeepDiveResponse = await res.json()
-    deepDiveResult.value = sanitizeDeepDive(data.analysis)
+    const data = (await res.json().catch(() => ({}))) as DeepDiveResponse & { error?: string }
+    if (res.status === 402) {
+      const msg = data.error ?? 'Demo ended — add your OpenAI key in Settings.'
+      settings.reportAiKeyIssue(msg)
+      deepDiveResult.value = msg
+      return
+    }
+    if (!res.ok) {
+      deepDiveResult.value = data.error ?? 'Analysis failed. Please try again.'
+      return
+    }
+    deepDiveResult.value = sanitizeDeepDive(data.analysis ?? '')
     const h = await fetch(`${API_BASE}/api/insights/deep-dive/history?newsId=${props.insight.newsId}`)
     if (h.ok) deepDiveHistory.value = await h.json()
   } catch {
@@ -300,7 +313,7 @@ async function submitDeepDive() {
             v-model="deepDiveQuestion"
             ref="deepDiveInputEl"
             type="text"
-            placeholder="Ask a strategic question about this news..."
+            placeholder="Ask how this news affects strategy, risk, or your response…"
             class="flex-1 rounded-md bg-gray-800 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none ring-1 ring-gray-700 focus:ring-blue-500"
             @keydown.enter="submitDeepDive"
           />

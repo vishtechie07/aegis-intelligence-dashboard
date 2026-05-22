@@ -9,6 +9,20 @@ import ThreatCard from './ThreatCard.vue'
 const store = useInsightStore()
 const settings = useSettingsStore()
 const route = useRoute()
+const skeletonSlots = [1, 2, 3, 4]
+
+const emptyFeedMessage = computed(() => {
+  if (!settings.isConfigured) {
+    return 'AI agents are inactive. News is harvested; analysis waits for an OpenAI key in Settings.'
+  }
+  if (store.connectionStatus === 'connected') {
+    return 'Live — no insights yet. Harvesters will populate the feed shortly.'
+  }
+  if (store.connectionStatus === 'connecting') {
+    return 'Connecting to live feed…'
+  }
+  return 'Reconnecting to live feed…'
+})
 const router = useRouter()
 
 type ThreatFilter = 'all' | 'high'
@@ -441,20 +455,28 @@ watch(dateScope, scope => {
         </button>
       </div>
 
+      <div v-if="store.isBootLoading" class="space-y-3" aria-hidden="true">
+        <div
+          v-for="n in skeletonSlots"
+          :key="n"
+          class="animate-pulse rounded-lg border-l-4 border-gray-700 bg-gray-900 p-4"
+        >
+          <div class="flex justify-between gap-2">
+            <div class="h-4 w-32 rounded bg-gray-800" />
+            <div class="h-4 w-20 rounded bg-gray-800" />
+          </div>
+          <div class="mt-3 h-4 w-full rounded bg-gray-800" />
+          <div class="mt-2 h-3 w-4/5 rounded bg-gray-800/80" />
+          <div class="mt-3 h-12 w-full rounded bg-gray-800/60" />
+        </div>
+      </div>
+
       <div
-        v-if="!filtered.length"
+        v-else-if="!filtered.length"
         class="flex h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-gray-800 text-center"
       >
         <div class="text-4xl">📡</div>
-        <p class="text-sm text-gray-500">
-          {{
-            !settings.isRuntimeKey
-              ? 'AI agents are inactive. News is harvested, analysis waits for your OpenAI key.'
-              : store.connectionStatus === 'connected'
-                ? 'Listening for competitor activity...'
-                : 'Waiting for connection...'
-          }}
-        </p>
+        <p class="text-sm text-gray-500">{{ emptyFeedMessage }}</p>
       </div>
 
       <div

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Insight } from '@/types/insight'
 
 const MAX_PER_COMPETITOR = 50
@@ -21,9 +21,12 @@ function trimToMaxPerCompetitor(list: Insight[]): Insight[] {
   return result
 }
 
+export type BootStatus = 'loading' | 'waking-api' | 'ready' | 'error'
+
 export const useInsightStore = defineStore('insights', () => {
   const insights = ref<Insight[]>([])
   const connectionStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected')
+  const bootStatus = ref<BootStatus>('loading')
   const errorCount = ref(0)
 
   const highThreatInsights = computed(() =>
@@ -60,6 +63,14 @@ export const useInsightStore = defineStore('insights', () => {
     connectionStatus.value = status
   }
 
+  function setBootStatus(status: BootStatus) {
+    bootStatus.value = status
+  }
+
+  const isBootLoading = computed(
+    () => bootStatus.value === 'loading' || bootStatus.value === 'waking-api',
+  )
+
   function incrementError() {
     errorCount.value++
   }
@@ -67,12 +78,15 @@ export const useInsightStore = defineStore('insights', () => {
   return {
     insights,
     connectionStatus,
+    bootStatus,
+    isBootLoading,
     errorCount,
     highThreatInsights,
     insightsByCompetitor,
     addInsight,
     loadInitial,
     setStatus,
+    setBootStatus,
     incrementError,
   }
 })

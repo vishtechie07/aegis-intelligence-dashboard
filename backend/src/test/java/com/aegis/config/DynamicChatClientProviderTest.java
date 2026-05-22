@@ -13,8 +13,9 @@ class DynamicChatClientProviderTest {
     void notConfigured_whenEnvKeyBlankAndNoModel() {
         DynamicChatClientProvider provider = new DynamicChatClientProvider("", null);
 
-        assertThat(provider.isConfigured()).isFalse();
-        assertThat(provider.isRuntimeKeySet()).isFalse();
+        assertThat(provider.isServerKeyAvailable()).isFalse();
+        assertThat(provider.isConfiguredForSession("sess-a")).isFalse();
+        assertThat(provider.isRuntimeKeySet("sess-a")).isFalse();
     }
 
     @Test
@@ -22,8 +23,8 @@ class DynamicChatClientProviderTest {
         ChatModel model = mock(ChatModel.class);
         DynamicChatClientProvider provider = new DynamicChatClientProvider("sk-env-key", model);
 
-        assertThat(provider.isConfigured()).isTrue();
-        assertThat(provider.isRuntimeKeySet()).isFalse();
+        assertThat(provider.isConfiguredForSession("sess-a")).isTrue();
+        assertThat(provider.isRuntimeKeySet("sess-a")).isFalse();
     }
 
     @Test
@@ -36,55 +37,36 @@ class DynamicChatClientProviderTest {
     }
 
     @Test
-    void updateKey_makesProviderConfigured() {
+    void updateKey_scopedToSession() {
         DynamicChatClientProvider provider = new DynamicChatClientProvider("", null);
-        assertThat(provider.isConfigured()).isFalse();
 
-        provider.updateKey("sk-proj-testkey1234567890");
+        provider.updateKey("sess-a", "sk-proj-testkey1234567890");
 
-        assertThat(provider.isConfigured()).isTrue();
-        assertThat(provider.isRuntimeKeySet()).isTrue();
-        assertThat(provider.get()).isNotNull();
+        assertThat(provider.isRuntimeKeySet("sess-a")).isTrue();
+        assertThat(provider.isRuntimeKeySet("sess-b")).isFalse();
+        assertThatThrownBy(provider::get).isInstanceOf(ApiKeyNotConfiguredException.class);
+        assertThat(provider.getForSession("sess-a")).isNotNull();
     }
 
     @Test
-    void updateKey_replacesExistingClient() {
-        ChatModel model = mock(ChatModel.class);
-        DynamicChatClientProvider provider = new DynamicChatClientProvider("sk-old", model);
-        var originalClient = provider.get();
-
-        provider.updateKey("sk-proj-newkey1234567890");
-
-        assertThat(provider.get()).isNotSameAs(originalClient);
-        assertThat(provider.isRuntimeKeySet()).isTrue();
-    }
-
-    @Test
-    void clearRuntimeKey_revertsToEnvironmentClient() {
+    void clearRuntimeKey_onlyClearsTargetSession() {
         ChatModel model = mock(ChatModel.class);
         DynamicChatClientProvider provider = new DynamicChatClientProvider("sk-env-key", model);
-        var envClient = provider.get();
 
-        provider.updateKey("sk-proj-newkey1234567890");
-        assertThat(provider.isRuntimeKeySet()).isTrue();
+        provider.updateKey("sess-a", "sk-proj-newkey1234567890");
+        assertThat(provider.isRuntimeKeySet("sess-a")).isTrue();
 
-        provider.clearRuntimeKey();
+        provider.clearRuntimeKey("sess-a");
 
-        assertThat(provider.isRuntimeKeySet()).isFalse();
-        assertThat(provider.isConfigured()).isTrue();
-        assertThat(provider.isServerKeyAvailable()).isTrue();
-        assertThat(provider.get()).isSameAs(envClient);
+        assertThat(provider.isRuntimeKeySet("sess-a")).isFalse();
+        assertThat(provider.getForSession("sess-a")).isSameAs(provider.get());
     }
 
     @Test
-    void clearRuntimeKey_unconfiguredWhenNoEnvironmentKey() {
-        DynamicChatClientProvider provider = new DynamicChatClientProvider("", null);
-        provider.updateKey("sk-proj-newkey1234567890");
-        assertThat(provider.isConfigured()).isTrue();
+    void getForSession_fallsBackToEnvironmentClient() {
+        ChatModel model = mock(ChatModel.class);
+        DynamicChatClientProvider provider = new DynamicChatClientProvider("sk-env-key", model);
 
-        provider.clearRuntimeKey();
-
-        assertThat(provider.isConfigured()).isFalse();
-        assertThat(provider.isRuntimeKeySet()).isFalse();
+        assertThat(provider.getForSession("sess-x")).isSameAs(provider.get());
     }
 }

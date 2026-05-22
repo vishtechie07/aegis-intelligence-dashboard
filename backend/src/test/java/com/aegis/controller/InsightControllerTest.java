@@ -18,10 +18,10 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.anyLong;
-
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -103,7 +103,7 @@ class InsightControllerTest {
 
     @Test
     void deepDive_returnsAnalysis() {
-        when(deepDiveService.deepDive(eq(42L), anyString()))
+        when(deepDiveService.deepDive(eq(42L), anyString(), any(), anyString()))
                 .thenReturn("• Strategic point 1\n• Strategic point 2");
 
         client.post().uri("/api/insights/deep-dive")

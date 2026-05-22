@@ -57,6 +57,13 @@ management:
 aegis:
   cors:
     allowed-origins: ${AEGIS_CORS_ALLOWED_ORIGINS:*}
+  security:
+    interactive-max-per-minute: ${AEGIS_INTERACTIVE_MAX_PER_MINUTE:30}
+  competitors:
+    mutations-enabled: ${AEGIS_COMPETITORS_MUTATIONS_ENABLED:true}
+  demo:
+    trial-enabled: ${AEGIS_DEMO_TRIAL_ENABLED:true}
+    trial-minutes: ${AEGIS_DEMO_TRIAL_MINUTES:5}
   harvest:
     competitors: ${AEGIS_TRACKED_COMPETITORS:Microsoft,Google,Amazon,OpenAI,Anthropic}
 

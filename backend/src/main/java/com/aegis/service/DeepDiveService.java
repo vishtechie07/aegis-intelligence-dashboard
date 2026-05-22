@@ -6,6 +6,8 @@ import com.aegis.entity.CompetitorNews;
 import com.aegis.entity.DeepDiveLog;
 import com.aegis.repository.CompetitorNewsRepository;
 import com.aegis.repository.DeepDiveLogRepository;
+import com.aegis.util.DeepDiveRelevanceGuard;
+import com.aegis.util.SessionIds;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,21 +21,27 @@ import java.util.List;
 public class DeepDiveService {
 
     private final DynamicChatClientProvider provider;
+    private final DemoQuotaService demoQuotaService;
+    private final InteractiveAiRateLimiter rateLimiter;
     private final CompetitorNewsRepository newsRepository;
     private final DeepDiveLogRepository deepDiveLogRepository;
 
     private static final String PROMPT = """
             You are a senior competitive intelligence analyst.
             A user asked: "{question}"
-            
+
             Use the following news article about {competitor} to provide a deep-dive analysis:
             Title: {title}
             Content: {content}
-            
+
+            Rules:
+            - Only answer questions that relate to this article, the competitor, market impact, or strategic response.
+            - If the question is unrelated (math, trivia, jokes, general chat), do NOT analyse the article. Instead reply using the off-topic format below.
+
             Return PLAIN TEXT ONLY. Do not use Markdown and do not use '*', '-', or '**'.
             Use '• ' (bullet character) for bullets.
 
-            Output format (exact section headers; keep ordering):
+            On-topic output format (exact section headers; keep ordering):
 
             Answer:
             <one concise paragraph>
@@ -42,30 +50,54 @@ public class DeepDiveService {
             • <3-5 bullets>
 
             Recommended actions:
-            • <3-5 bullets>""";
+            • <3-5 bullets>
+
+            Off-topic output format (use when question is unrelated):
+
+            Answer:
+            <one sentence explaining you only answer strategic questions about this news item>
+
+            Strategic implications:
+            • N/A — question is outside competitive intelligence scope.
+
+            Recommended actions:
+            • Rephrase to reference the headline, competitor move, or market impact.""";
 
     @Transactional
     @SuppressWarnings("null")
-    public String deepDive(Long newsId, String question) {
+    public String deepDive(Long newsId, String question, String sessionId, String clientIp) {
+        demoQuotaService.assertInteractiveAiAllowed(sessionId, clientIp);
+        rateLimiter.assertAllowed(demoQuotaService.resolveQuotaKey(sessionId, clientIp));
+        String rawQ = question != null ? question.trim() : "";
+        final String q = rawQ.length() > SessionIds.MAX_DEEP_DIVE_QUESTION_LENGTH
+                ? rawQ.substring(0, SessionIds.MAX_DEEP_DIVE_QUESTION_LENGTH)
+                : rawQ;
+        if (DeepDiveRelevanceGuard.isObviouslyOffTopic(q)) {
+            return persistAndReturn(newsId, q, DeepDiveRelevanceGuard.offTopicResponse());
+        }
+
         CompetitorNews news = newsRepository.findById(newsId)
                 .orElseThrow(() -> new IllegalArgumentException("News not found: " + newsId));
         String safeContent = news.getContent() != null
                 ? news.getContent().substring(0, Math.min(news.getContent().length(), 1000))
                 : "No content available";
-        Object raw = provider.get().prompt()
+        Object raw = provider.getForSession(sessionId).prompt()
                 .user(u -> u.text(PROMPT)
-                        .param("question", question != null ? question : "")
+                        .param("question", q)
                         .param("competitor", news.getCompetitorName() != null ? news.getCompetitorName() : "")
                         .param("title", news.getTitle() != null ? news.getTitle() : "")
                         .param("content", safeContent))
                 .call()
                 .content();
         String analysis = normalizePlainText(raw != null ? raw.toString() : "");
-        String q = question != null ? question : "";
-        if (!q.isBlank()) {
+        return persistAndReturn(newsId, q, analysis);
+    }
+
+    private String persistAndReturn(Long newsId, String question, String analysis) {
+        if (!question.isBlank()) {
             deepDiveLogRepository.save(DeepDiveLog.builder()
                     .newsId(newsId)
-                    .question(q)
+                    .question(question)
                     .analysis(analysis)
                     .build());
         }
@@ -86,11 +118,9 @@ public class DeepDiveService {
     private String normalizePlainText(String text) {
         if (text == null || text.isBlank()) return "";
         String t = text.replace("\r\n", "\n");
-        // Remove markdown-ish headings and bold markers.
         t = t.replaceAll("(?m)^\\s*#{1,6}\\s*", "");
         t = t.replace("**", "");
         t = t.replaceAll("`{1,3}", "");
-        // Normalize list markers to a single bullet character.
         t = t.replaceAll("(?m)^\\s*[-*]\\s+", "• ");
         return t.trim();
     }

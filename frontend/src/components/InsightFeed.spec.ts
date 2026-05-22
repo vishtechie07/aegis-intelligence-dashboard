@@ -27,21 +27,37 @@ function makeInsight(id: number, threatLevel = 5, competitorName = 'Acme'): Insi
 }
 
 describe('InsightFeed', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useInsightStore().setBootStatus('ready')
+  })
 
   it('shows empty state when no insights', () => {
-    useSettingsStore().isRuntimeKey = true
+    const settings = useSettingsStore()
+    settings.isConfigured = true
+    const store = useInsightStore()
+    store.setBootStatus('ready')
     const wrapper = mountInsightFeed()
-    expect(wrapper.text()).toContain('Waiting for connection')
+    expect(wrapper.text()).toContain('Reconnecting to live feed')
   })
 
   it('shows listening text when connected and empty', async () => {
-    useSettingsStore().isRuntimeKey = true
+    const settings = useSettingsStore()
+    settings.isConfigured = true
     const store = useInsightStore()
+    store.setBootStatus('ready')
     store.setStatus('connected')
 
     const wrapper = mountInsightFeed()
-    expect(wrapper.text()).toContain('Listening for competitor activity')
+    expect(wrapper.text()).toContain('Live — no insights yet')
+  })
+
+  it('shows skeleton placeholders while boot loading', () => {
+    const store = useInsightStore()
+    store.setBootStatus('loading')
+    store.loadInitial([])
+    const wrapper = mountInsightFeed()
+    expect(wrapper.find('.animate-pulse').exists()).toBe(true)
   })
 
   it('renders a ThreatCard for each insight', () => {

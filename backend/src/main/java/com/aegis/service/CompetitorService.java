@@ -19,12 +19,21 @@ public class CompetitorService {
     private final Map<String, Meta> metaMap = new ConcurrentHashMap<>();
     private final List<String> orderedNames = new ArrayList<>();
     private final DynamicChatClientProvider chatClientProvider;
+    private final DemoQuotaService demoQuotaService;
+    private final InteractiveAiRateLimiter rateLimiter;
+    private final CompetitorMutationPolicy mutationPolicy;
 
     public CompetitorService(
             @Value("${aegis.harvest.competitors:Microsoft,Google,Amazon,OpenAI,Anthropic}") String competitorsRaw,
             @Value("#{${aegis.sources.github.org-map:{}}}") Map<String, String> configOrgMap,
-            DynamicChatClientProvider chatClientProvider) {
+            DynamicChatClientProvider chatClientProvider,
+            DemoQuotaService demoQuotaService,
+            InteractiveAiRateLimiter rateLimiter,
+            CompetitorMutationPolicy mutationPolicy) {
         this.chatClientProvider = chatClientProvider;
+        this.demoQuotaService = demoQuotaService;
+        this.rateLimiter = rateLimiter;
+        this.mutationPolicy = mutationPolicy;
         Map<String, String> orgMap = configOrgMap != null ? configOrgMap : Map.of();
         String raw = competitorsRaw != null ? competitorsRaw : "";
         Arrays.stream(raw.split(","))
@@ -66,6 +75,7 @@ public class CompetitorService {
     }
 
     public synchronized void add(CompetitorDto dto) {
+        mutationPolicy.assertMutationsAllowed();
         String name = dto.name().trim();
         if (orderedNames.stream().anyMatch(n -> n.equalsIgnoreCase(name))) return;
         String org = dto.githubOrg() != null && !dto.githubOrg().isBlank()
@@ -78,17 +88,23 @@ public class CompetitorService {
     }
 
     public synchronized boolean remove(String name) {
+        mutationPolicy.assertMutationsAllowed();
         boolean removed = orderedNames.removeIf(n -> n.equalsIgnoreCase(name));
         if (removed) metaMap.entrySet().removeIf(e -> e.getKey().equalsIgnoreCase(name));
         return removed;
     }
 
     @SuppressWarnings("null")
-    public CompetitorDto lookup(String companyName, String countryHint) {
-        String safeName = companyName != null ? companyName : "";
+    public CompetitorDto lookup(String companyName, String countryHint, String sessionId, String clientIp) {
+        demoQuotaService.assertInteractiveAiAllowed(sessionId, clientIp);
+        rateLimiter.assertAllowed(demoQuotaService.resolveQuotaKey(sessionId, clientIp));
+        String safeName = companyName != null ? companyName.trim() : "";
+        if (safeName.length() > 200) {
+            safeName = safeName.substring(0, 200);
+        }
         String safeCountry = countryHint != null ? countryHint : "unknown";
         try {
-            ChatClient client = chatClientProvider.get();
+            ChatClient client = chatClientProvider.getForSession(sessionId);
             String prompt = String.format("""
                     You are a business intelligence assistant. Given a company name and optional country,
                     return ONLY a valid JSON object with these exact fields:

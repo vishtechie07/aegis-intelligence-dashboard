@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useInsightStore } from '@/stores/insightStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useCompetitorStore } from '@/stores/competitorStore'
@@ -8,8 +8,9 @@ import InsightFeed from '@/components/InsightFeed.vue'
 import HarvestStatusBar from '@/components/HarvestStatusBar.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
 import CompetitorModal from '@/components/CompetitorModal.vue'
+import BootLoadingOverlay from '@/components/BootLoadingOverlay.vue'
 
-useSse()
+const { retryBootstrap } = useSse()
 
 const store = useInsightStore()
 const settings = useSettingsStore()
@@ -20,6 +21,12 @@ const competitorsOpen = ref(false)
 onMounted(() => {
   settings.restoreFromStorage()
   competitors.fetchAll()
+  const quotaTimer = setInterval(() => {
+    if (settings.serverKeyAvailable && !settings.isRuntimeKey) {
+      void settings.checkStatus()
+    }
+  }, 30_000)
+  onUnmounted(() => clearInterval(quotaTimer))
 })
 
 const statusColor = computed(() => ({
@@ -65,7 +72,10 @@ const statusLabel = computed(() => ({
           <div class="flex items-center gap-2">
             <span
               class="inline-block size-2 rounded-full"
-              :class="[statusColor, store.connectionStatus === 'connected' ? 'animate-pulse' : '']"
+              :class="[
+                store.isBootLoading ? 'bg-yellow-400 animate-pulse' : statusColor,
+                !store.isBootLoading && store.connectionStatus === 'connected' ? 'animate-pulse' : '',
+              ]"
             />
             <span class="text-xs text-gray-400">{{ statusLabel }}</span>
           </div>
@@ -112,6 +122,17 @@ const statusLabel = computed(() => ({
       </div>
 
       <div
+        v-if="settings.demoQuota?.requiresUserKey && settings.serverKeyAvailable && !settings.isRuntimeKey"
+        class="mb-4 rounded-lg bg-amber-950/40 px-4 py-3 ring-1 ring-amber-700/40"
+      >
+        <p class="text-sm text-amber-200">
+          Hosted AI demo time is up. Add your OpenAI key in
+          <button class="underline hover:text-amber-50" @click="settingsOpen = true">Settings</button>
+          to use Ask Agent and AI Lookup.
+        </p>
+      </div>
+
+      <div
         v-if="settings.aiKeyIssueBanner"
         class="mb-4 flex items-start justify-between gap-3 rounded-lg bg-red-950/40 px-4 py-3 ring-1 ring-red-800/50"
       >
@@ -136,6 +157,8 @@ const statusLabel = computed(() => ({
 
       <InsightFeed />
     </main>
+
+    <BootLoadingOverlay :on-retry="retryBootstrap" />
 
     <Teleport to="body">
       <SettingsModal v-if="settingsOpen" @close="settingsOpen = false" />

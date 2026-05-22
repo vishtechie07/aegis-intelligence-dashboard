@@ -4,10 +4,13 @@ import com.aegis.dto.DeepDiveHistoryEntry;
 import com.aegis.dto.DeepDiveRequest;
 import com.aegis.dto.InsightEvent;
 import com.aegis.service.DeepDiveService;
+import com.aegis.service.DemoQuotaService;
 import com.aegis.service.InsightService;
+import com.aegis.util.ClientAddressResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
@@ -48,11 +51,15 @@ public class InsightController {
 
     /** Deep-dive by newsId + question. */
     @PostMapping("/deep-dive")
-    public Map<String, String> deepDive(@RequestBody DeepDiveRequest request) {
-        if (request == null) return Map.of("analysis", "");
-        Long newsId = request.newsId();
-        String question = request.question() != null ? request.question() : "";
-        String analysis = deepDiveService.deepDive(newsId, question);
+    public Map<String, String> deepDive(
+            ServerHttpRequest request,
+            @RequestBody DeepDiveRequest requestBody,
+            @RequestHeader(value = DemoQuotaService.SESSION_HEADER, required = false) String sessionId) {
+        if (requestBody == null) return Map.of("analysis", "");
+        Long newsId = requestBody.newsId();
+        String question = requestBody.question() != null ? requestBody.question() : "";
+        String clientIp = ClientAddressResolver.resolve(request);
+        String analysis = deepDiveService.deepDive(newsId, question, sessionId, clientIp);
         return Map.of("analysis", analysis != null ? analysis : "");
     }
 
