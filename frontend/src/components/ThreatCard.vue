@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { aegisSessionHeaders } from '@/composables/useAegisSession'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { Insight, DeepDiveRequest, DeepDiveResponse, DeepDiveHistoryEntry } from '@/types/insight'
+import type { Insight, DeepDiveRequest, DeepDiveResponse, DeepDiveHistoryEntry, DeepDiveSource } from '@/types/insight'
 
 const props = defineProps<{ insight: Insight }>()
 
@@ -92,18 +92,44 @@ const sourceIcon = computed(() => {
 const deepDiveOpen = ref(false)
 const deepDiveQuestion = ref('')
 const deepDiveResult = ref('')
+const deepDiveSources = ref<DeepDiveSource[]>([])
+const deepDiveRagUsed = ref(false)
+const sourcesOpen = ref(true)
 const deepDiveLoading = ref(false)
 const deepDiveCopied = ref(false)
 const deepDiveInputEl = ref<HTMLInputElement | null>(null)
 const deepDiveHistory = ref<DeepDiveHistoryEntry[]>([])
 const deepDiveHistoryLoading = ref(false)
+const selectedHistoryId = ref<number | null>(null)
+
+function loadHistoryEntry(entry: DeepDiveHistoryEntry) {
+  selectedHistoryId.value = entry.id
+  deepDiveQuestion.value = entry.question
+  deepDiveResult.value = sanitizeDeepDive(entry.analysis)
+  deepDiveSources.value = entry.sources ?? []
+  deepDiveRagUsed.value = entry.ragUsed ?? false
+  sourcesOpen.value = true
+  deepDiveCopied.value = false
+}
+
+function historyPreview(analysis: string): string {
+  const first = sanitizeDeepDive(analysis).split('\n').map(l => l.trim()).find(l => l && !/^answer:/i.test(l))
+  if (!first) return ''
+  return first.length > 120 ? `${first.slice(0, 120)}…` : first
+}
 
 watch(deepDiveOpen, async (open) => {
-  if (!open) return
+  if (!open) {
+    selectedHistoryId.value = null
+    return
+  }
   deepDiveHistoryLoading.value = true
   try {
     const res = await fetch(`${API_BASE}/api/insights/deep-dive/history?newsId=${props.insight.newsId}`)
     deepDiveHistory.value = res.ok ? await res.json() : []
+    if (deepDiveHistory.value.length > 0) {
+      loadHistoryEntry(deepDiveHistory.value[0])
+    }
   } catch {
     deepDiveHistory.value = []
   } finally {
@@ -204,6 +230,9 @@ async function submitDeepDive() {
   if (!deepDiveQuestion.value.trim()) return
   deepDiveLoading.value = true
   deepDiveResult.value = ''
+  deepDiveSources.value = []
+  deepDiveRagUsed.value = false
+  selectedHistoryId.value = null
   deepDiveCopied.value = false
   try {
     const body: DeepDiveRequest = { newsId: props.insight.newsId, question: deepDiveQuestion.value }
@@ -224,8 +253,16 @@ async function submitDeepDive() {
       return
     }
     deepDiveResult.value = sanitizeDeepDive(data.analysis ?? '')
+    deepDiveSources.value = data.sources ?? []
+    deepDiveRagUsed.value = data.ragUsed ?? false
+    sourcesOpen.value = true
     const h = await fetch(`${API_BASE}/api/insights/deep-dive/history?newsId=${props.insight.newsId}`)
-    if (h.ok) deepDiveHistory.value = await h.json()
+    if (h.ok) {
+      deepDiveHistory.value = await h.json()
+      if (deepDiveHistory.value.length > 0) {
+        selectedHistoryId.value = deepDiveHistory.value[0].id
+      }
+    }
   } catch {
     deepDiveResult.value = 'Analysis failed. Please try again.'
   } finally {
@@ -297,16 +334,32 @@ async function submitDeepDive() {
     <Transition name="slide">
       <div v-if="deepDiveOpen" class="border-t border-gray-800 bg-gray-950/50 p-4">
         <div v-if="deepDiveHistoryLoading" class="mb-3 text-xs text-gray-500">Loading history…</div>
-        <div v-else-if="deepDiveHistory.length" class="mb-3 max-h-32 space-y-2 overflow-y-auto rounded-md bg-gray-900/80 p-2 ring-1 ring-gray-800">
-          <p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Previous asks</p>
-          <div
+        <div v-else-if="deepDiveHistory.length" class="mb-3 max-h-48 space-y-1 overflow-y-auto rounded-md bg-gray-900/80 p-2 ring-1 ring-gray-800">
+          <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Previous asks</p>
+          <button
             v-for="h in deepDiveHistory"
             :key="h.id"
-            class="border-b border-gray-800/80 pb-2 text-xs last:border-0 last:pb-0"
+            type="button"
+            class="w-full rounded-md px-2 py-2 text-left text-xs transition-colors"
+            :class="selectedHistoryId === h.id
+              ? 'bg-blue-950/50 ring-1 ring-blue-800'
+              : 'hover:bg-gray-800/80'"
+            @click="loadHistoryEntry(h)"
           >
-            <p class="font-medium text-gray-300">{{ h.question }}</p>
-            <p class="mt-0.5 line-clamp-2 text-gray-500">{{ h.analysis }}</p>
-          </div>
+            <div class="flex items-start justify-between gap-2">
+              <p class="font-medium text-gray-300">{{ h.question }}</p>
+              <span
+                v-if="selectedHistoryId === h.id"
+                class="shrink-0 text-[10px] font-medium text-blue-400"
+              >
+                Viewing
+              </span>
+            </div>
+            <p class="mt-0.5 line-clamp-1 text-gray-500">{{ historyPreview(h.analysis) }}</p>
+            <p v-if="h.ragUsed || (h.sources?.length ?? 0) > 0" class="mt-0.5 text-[10px] text-gray-600">
+              {{ h.ragUsed ? 'RAG' : 'Sources' }} · {{ h.sources?.length ?? 0 }} cited
+            </p>
+          </button>
         </div>
         <div class="flex gap-2">
           <input
@@ -370,6 +423,55 @@ async function submitDeepDive() {
               </ul>
             </div>
           </div>
+
+          <div v-if="deepDiveSources.length" class="mt-3 border-t border-gray-800 pt-3">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-2 text-left text-xs font-medium text-gray-300 hover:text-white"
+              @click="sourcesOpen = !sourcesOpen"
+            >
+              <span>
+                Sources used ({{ deepDiveSources.length }})
+                <span
+                  v-if="deepDiveRagUsed"
+                  class="ml-2 rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-300 ring-1 ring-violet-500/30"
+                >
+                  RAG
+                </span>
+              </span>
+              <span class="text-gray-500">{{ sourcesOpen ? '▾' : '▸' }}</span>
+            </button>
+            <ul v-show="sourcesOpen" class="mt-2 space-y-2">
+              <li
+                v-for="s in deepDiveSources"
+                :key="`${s.newsId}-${s.currentArticle}`"
+                class="rounded-md p-2 ring-1"
+                :class="s.currentArticle ? 'bg-blue-950/30 ring-blue-900/50' : 'bg-gray-900/60 ring-gray-800'"
+              >
+                <div class="flex items-center gap-2">
+                  <span
+                    class="rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                    :class="s.currentArticle ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-800 text-gray-400'"
+                  >
+                    {{ s.currentArticle ? 'This article' : 'Related' }}
+                  </span>
+                </div>
+                <a
+                  v-if="s.sourceUrl"
+                  :href="s.sourceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="mt-1 block text-xs font-medium text-blue-400 hover:text-blue-300"
+                >
+                  {{ s.title }}
+                </a>
+                <p v-else class="mt-1 text-xs font-medium text-gray-200">{{ s.title }}</p>
+                <p v-if="s.excerpt" class="mt-1 line-clamp-3 text-[11px] leading-relaxed text-gray-500">
+                  {{ s.excerpt }}
+                </p>
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div
@@ -407,7 +509,7 @@ async function submitDeepDive() {
 }
 .slide-enter-to,
 .slide-leave-from {
-  max-height: 400px;
+  max-height: 1200px;
   opacity: 1;
 }
 </style>

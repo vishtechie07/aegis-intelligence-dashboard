@@ -2,12 +2,17 @@ package com.aegis.service;
 
 import com.aegis.config.DynamicChatClientProvider;
 import com.aegis.dto.DeepDiveHistoryEntry;
+import com.aegis.dto.DeepDiveResponse;
+import com.aegis.dto.DeepDiveSource;
+import com.aegis.dto.RagRetrievalResult;
 import com.aegis.entity.CompetitorNews;
 import com.aegis.entity.DeepDiveLog;
 import com.aegis.repository.CompetitorNewsRepository;
 import com.aegis.repository.DeepDiveLogRepository;
 import com.aegis.util.DeepDiveRelevanceGuard;
 import com.aegis.util.SessionIds;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +24,9 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 public class DeepDiveService {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final TypeReference<List<DeepDiveSource>> SOURCE_LIST = new TypeReference<>() {};
 
     private final DynamicChatClientProvider provider;
     private final DemoQuotaService demoQuotaService;
@@ -69,50 +77,69 @@ public class DeepDiveService {
 
     @Transactional
     @SuppressWarnings("null")
-    public String deepDive(Long newsId, String question, String sessionId, String clientIp) {
+    public DeepDiveResponse deepDive(Long newsId, String question, String sessionId, String clientIp) {
         demoQuotaService.assertInteractiveAiAllowed(sessionId, clientIp);
         rateLimiter.assertAllowed(demoQuotaService.resolveQuotaKey(sessionId, clientIp));
         String rawQ = question != null ? question.trim() : "";
         final String q = rawQ.length() > SessionIds.MAX_DEEP_DIVE_QUESTION_LENGTH
                 ? rawQ.substring(0, SessionIds.MAX_DEEP_DIVE_QUESTION_LENGTH)
                 : rawQ;
-        if (DeepDiveRelevanceGuard.isObviouslyOffTopic(q)) {
-            return persistAndReturn(newsId, q, DeepDiveRelevanceGuard.offTopicResponse());
-        }
 
         CompetitorNews news = newsRepository.findById(newsId)
                 .orElseThrow(() -> new IllegalArgumentException("News not found: " + newsId));
+
+        if (DeepDiveRelevanceGuard.isObviouslyOffTopic(q)) {
+            return persistAndReturn(newsId, q, DeepDiveRelevanceGuard.offTopicResponse(),
+                    List.of(currentSource(news)), false);
+        }
+
+        RagRetrievalResult retrieval = ragRetrievalService.retrieve(q, news);
         String safeContent = news.getContent() != null
                 ? news.getContent().substring(0, Math.min(news.getContent().length(), 1000))
                 : "No content available";
-        String relatedContext = ragRetrievalService.relatedContext(
-                q, news.getCompetitorName(), newsId);
-        if (relatedContext.isBlank()) {
-            relatedContext = "None available.";
-        }
-        final String relatedForPrompt = relatedContext;
+        String relatedContext = retrieval.relatedContext().isBlank()
+                ? "None available."
+                : retrieval.relatedContext();
+
         Object raw = provider.getForSession(sessionId).prompt()
                 .user(u -> u.text(PROMPT)
                         .param("question", q)
                         .param("competitor", news.getCompetitorName() != null ? news.getCompetitorName() : "")
                         .param("title", news.getTitle() != null ? news.getTitle() : "")
                         .param("content", safeContent)
-                        .param("relatedContext", relatedForPrompt))
+                        .param("relatedContext", relatedContext))
                 .call()
                 .content();
         String analysis = normalizePlainText(raw != null ? raw.toString() : "");
-        return persistAndReturn(newsId, q, analysis);
+        return persistAndReturn(newsId, q, analysis, retrieval.sources(), retrieval.ragUsed());
     }
 
-    private String persistAndReturn(Long newsId, String question, String analysis) {
+    private DeepDiveSource currentSource(CompetitorNews news) {
+        String title = news.getTitle() != null ? news.getTitle() : "";
+        String content = news.getContent() != null ? news.getContent() : "";
+        String excerpt = content.length() > 400 ? content.substring(0, 400) + "…" : content;
+        if (excerpt.isBlank()) {
+            excerpt = title;
+        }
+        return new DeepDiveSource(news.getId(), title, excerpt, news.getSourceUrl(), true);
+    }
+
+    private DeepDiveResponse persistAndReturn(
+            Long newsId,
+            String question,
+            String analysis,
+            List<DeepDiveSource> sources,
+            boolean ragUsed) {
         if (!question.isBlank()) {
             deepDiveLogRepository.save(DeepDiveLog.builder()
                     .newsId(newsId)
                     .question(question)
                     .analysis(analysis)
+                    .sourcesJson(serializeSources(sources))
+                    .ragUsed(ragUsed)
                     .build());
         }
-        return analysis;
+        return new DeepDiveResponse(analysis, sources != null ? sources : List.of(), ragUsed);
     }
 
     public List<DeepDiveHistoryEntry> history(Long newsId) {
@@ -122,8 +149,33 @@ public class DeepDiveService {
                         log.getNewsId(),
                         log.getQuestion() != null ? log.getQuestion() : "",
                         log.getAnalysis() != null ? log.getAnalysis() : "",
-                        log.getCreatedAt()))
+                        log.getCreatedAt(),
+                        deserializeSources(log.getSourcesJson()),
+                        log.isRagUsed()))
                 .toList();
+    }
+
+    private static String serializeSources(List<DeepDiveSource> sources) {
+        if (sources == null || sources.isEmpty()) {
+            return null;
+        }
+        try {
+            return JSON.writeValueAsString(sources);
+        } catch (Exception ex) {
+            log.warn("[RAG] failed to serialize sources: {}", ex.getMessage());
+            return null;
+        }
+    }
+
+    private static List<DeepDiveSource> deserializeSources(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return JSON.readValue(json, SOURCE_LIST);
+        } catch (Exception ex) {
+            return List.of();
+        }
     }
 
     private String normalizePlainText(String text) {

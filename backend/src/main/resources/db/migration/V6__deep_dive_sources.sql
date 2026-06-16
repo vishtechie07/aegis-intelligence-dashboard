@@ -1,0 +1,5 @@
+ALTER TABLE deep_dive_log
+    ADD COLUMN IF NOT EXISTS sources_json TEXT;
+
+ALTER TABLE deep_dive_log
+    ADD COLUMN IF NOT EXISTS rag_used BOOLEAN NOT NULL DEFAULT FALSE;

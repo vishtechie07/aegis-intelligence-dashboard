@@ -1,6 +1,8 @@
 package com.aegis.controller;
 
 import com.aegis.dto.DeepDiveHistoryEntry;
+import com.aegis.dto.DeepDiveResponse;
+import com.aegis.dto.DeepDiveSource;
 import com.aegis.dto.InsightEvent;
 import com.aegis.service.DeepDiveService;
 import com.aegis.service.InsightService;
@@ -104,7 +106,10 @@ class InsightControllerTest {
     @Test
     void deepDive_returnsAnalysis() {
         when(deepDiveService.deepDive(eq(42L), anyString(), any(), anyString()))
-                .thenReturn("• Strategic point 1\n• Strategic point 2");
+                .thenReturn(new DeepDiveResponse(
+                        "• Strategic point 1\n• Strategic point 2",
+                        List.of(new DeepDiveSource(42L, "Title", "Excerpt", "https://example.com", true)),
+                        true));
 
         client.post().uri("/api/insights/deep-dive")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -114,14 +119,17 @@ class InsightControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.analysis").isEqualTo("• Strategic point 1\n• Strategic point 2");
+                .jsonPath("$.analysis").isEqualTo("• Strategic point 1\n• Strategic point 2")
+                .jsonPath("$.ragUsed").isEqualTo(true)
+                .jsonPath("$.sources[0].newsId").isEqualTo(42)
+                .jsonPath("$.sources[0].currentArticle").isEqualTo(true);
     }
 
     @Test
     void deepDiveHistory_returnsList() {
         var t = OffsetDateTime.now();
         when(deepDiveService.history(anyLong())).thenReturn(List.of(
-                new DeepDiveHistoryEntry(1L, 42L, "Q?", "A", t)));
+                new DeepDiveHistoryEntry(1L, 42L, "Q?", "A", t, List.of(), false)));
         client.get().uri("/api/insights/deep-dive/history?newsId=42")
                 .exchange()
                 .expectStatus().isOk()

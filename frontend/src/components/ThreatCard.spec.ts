@@ -131,12 +131,56 @@ describe('ThreatCard', () => {
     expect(wrapper.text()).toContain('Close')
   })
 
+  it('loads full answer when a previous ask is clicked', async () => {
+    const history = [{
+      id: 7,
+      newsId: 10,
+      question: 'any issues?',
+      analysis: 'Answer:\nOpenAI won the trade secrets case.\n\nStrategic implications:\n• Monitor legal risk',
+      createdAt: '2026-06-17T10:00:00Z',
+      sources: [{
+        newsId: 10,
+        title: 'GPT-5 has been released',
+        excerpt: 'OpenAI launched its latest model.',
+        sourceUrl: 'https://techcrunch.com/gpt5',
+        currentArticle: true,
+      }],
+      ragUsed: true,
+    }]
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => history,
+    } as Response)
+
+    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
+    await wrapper.find('button').trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('OpenAI won the trade secrets case')
+      expect(wrapper.text()).toContain('Sources used (1)')
+      expect(wrapper.text()).toContain('Viewing')
+    })
+
+    expect((wrapper.find('input').element as HTMLInputElement).value).toBe('any issues?')
+  })
+
   it('calls deep-dive API on Ask button click', async () => {
     vi.mocked(globalThis.fetch)
       .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ analysis: 'Deep analysis result' }),
+        json: async () => ({
+          analysis: 'Deep analysis result',
+          sources: [{
+            newsId: 10,
+            title: 'GPT-5 has been released',
+            excerpt: 'OpenAI launched its latest model.',
+            sourceUrl: 'https://techcrunch.com/gpt5',
+            currentArticle: true,
+          }],
+          ragUsed: false,
+        }),
       } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)
 

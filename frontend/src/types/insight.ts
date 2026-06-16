@@ -43,8 +43,18 @@ export interface DeepDiveRequest {
   question: string
 }
 
+export interface DeepDiveSource {
+  newsId: number
+  title: string
+  excerpt: string
+  sourceUrl: string | null
+  currentArticle: boolean
+}
+
 export interface DeepDiveResponse {
   analysis: string
+  sources: DeepDiveSource[]
+  ragUsed: boolean
 }
 
 /** Mirrors DeepDiveHistoryEntry.java */
@@ -54,4 +64,6 @@ export interface DeepDiveHistoryEntry {
   question: string
   analysis: string
   createdAt: string
+  sources: DeepDiveSource[]
+  ragUsed: boolean
 }

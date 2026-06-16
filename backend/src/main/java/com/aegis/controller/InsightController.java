@@ -2,6 +2,7 @@ package com.aegis.controller;
 
 import com.aegis.dto.DeepDiveHistoryEntry;
 import com.aegis.dto.DeepDiveRequest;
+import com.aegis.dto.DeepDiveResponse;
 import com.aegis.dto.InsightEvent;
 import com.aegis.service.DeepDiveService;
 import com.aegis.service.DemoQuotaService;
@@ -51,16 +52,17 @@ public class InsightController {
 
     /** Deep-dive by newsId + question. */
     @PostMapping("/deep-dive")
-    public Map<String, String> deepDive(
+    public DeepDiveResponse deepDive(
             ServerHttpRequest request,
             @RequestBody DeepDiveRequest requestBody,
             @RequestHeader(value = DemoQuotaService.SESSION_HEADER, required = false) String sessionId) {
-        if (requestBody == null) return Map.of("analysis", "");
+        if (requestBody == null) {
+            return new DeepDiveResponse("", List.of(), false);
+        }
         Long newsId = requestBody.newsId();
         String question = requestBody.question() != null ? requestBody.question() : "";
         String clientIp = ClientAddressResolver.resolve(request);
-        String analysis = deepDiveService.deepDive(newsId, question, sessionId, clientIp);
-        return Map.of("analysis", analysis != null ? analysis : "");
+        return deepDiveService.deepDive(newsId, question, sessionId, clientIp);
     }
 
     @GetMapping("/deep-dive/history")

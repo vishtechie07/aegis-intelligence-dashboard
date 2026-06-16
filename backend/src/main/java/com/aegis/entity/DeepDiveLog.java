@@ -29,6 +29,13 @@ public class DeepDiveLog {
     @Column(columnDefinition = "TEXT")
     private String analysis;
 
+    @Column(name = "sources_json", columnDefinition = "TEXT")
+    private String sourcesJson;
+
+    @Column(name = "rag_used", nullable = false)
+    @Builder.Default
+    private boolean ragUsed = false;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 
