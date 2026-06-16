@@ -27,6 +27,7 @@ public class AgentOrchestrationService {
     private final CompetitorNewsRepository newsRepository;
     private final AgentInsightRepository insightRepository;
     private final InsightService insightService;
+    private final RagIndexingService ragIndexingService;
 
     @Async
     @Transactional
@@ -61,5 +62,6 @@ public class AgentOrchestrationService {
                 saved.getId(), threat, article.competitor(), category);
 
         insightService.publish(insightService.toEvent(saved));
+        ragIndexingService.indexNewsAsync(newsId);
     }
 }

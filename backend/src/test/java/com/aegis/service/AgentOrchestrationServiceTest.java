@@ -32,6 +32,7 @@ class AgentOrchestrationServiceTest {
     @Mock CompetitorNewsRepository newsRepository;
     @Mock AgentInsightRepository insightRepository;
     @Mock InsightService insightService;
+    @Mock RagIndexingService ragIndexingService;
 
     AgentOrchestrationService service;
 
@@ -46,7 +47,7 @@ class AgentOrchestrationServiceTest {
     void setUp() {
         service = new AgentOrchestrationService(
                 noiseCanceler, marketAnalyst, strategist,
-                newsRepository, insightRepository, insightService);
+                newsRepository, insightRepository, insightService, ragIndexingService);
     }
 
     @Test
@@ -73,6 +74,7 @@ class AgentOrchestrationServiceTest {
         assertThat(saved.getCategory()).isEqualTo("PRODUCT_LAUNCH");
         assertThat(saved.getSummary()).isEqualTo("Summary");
         verify(insightService).publish(any());
+        verify(ragIndexingService).indexNewsAsync(42L);
     }
 
     @Test

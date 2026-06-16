@@ -34,6 +34,9 @@ spring:
         options:
           model: gpt-4o-mini
           temperature: 0.3
+      embedding:
+        options:
+          model: text-embedding-3-small
 
   jackson:
     serialization:
@@ -66,6 +69,14 @@ aegis:
     trial-minutes: ${AEGIS_DEMO_TRIAL_MINUTES:5}
   harvest:
     competitors: ${AEGIS_TRACKED_COMPETITORS:Microsoft,Google,Amazon,OpenAI,Anthropic}
+
+  rag:
+    enabled: ${AEGIS_RAG_ENABLED:false}
+    backfill-on-startup: ${AEGIS_RAG_BACKFILL_ON_STARTUP:false}
+    top-k: 5
+    chunk-size: 1200
+    chunk-overlap: 150
+    max-chunks-per-article: 20
 
   sources:
     rss:

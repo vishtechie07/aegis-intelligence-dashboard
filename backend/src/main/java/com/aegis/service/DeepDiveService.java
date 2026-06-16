@@ -25,6 +25,7 @@ public class DeepDiveService {
     private final InteractiveAiRateLimiter rateLimiter;
     private final CompetitorNewsRepository newsRepository;
     private final DeepDiveLogRepository deepDiveLogRepository;
+    private final RagRetrievalService ragRetrievalService;
 
     private static final String PROMPT = """
             You are a senior competitive intelligence analyst.
@@ -33,6 +34,9 @@ public class DeepDiveService {
             Use the following news article about {competitor} to provide a deep-dive analysis:
             Title: {title}
             Content: {content}
+
+            Related competitor history (retrieved from prior news; use only if relevant):
+            {relatedContext}
 
             Rules:
             - Only answer questions that relate to this article, the competitor, market impact, or strategic response.
@@ -81,12 +85,19 @@ public class DeepDiveService {
         String safeContent = news.getContent() != null
                 ? news.getContent().substring(0, Math.min(news.getContent().length(), 1000))
                 : "No content available";
+        String relatedContext = ragRetrievalService.relatedContext(
+                q, news.getCompetitorName(), newsId);
+        if (relatedContext.isBlank()) {
+            relatedContext = "None available.";
+        }
+        final String relatedForPrompt = relatedContext;
         Object raw = provider.getForSession(sessionId).prompt()
                 .user(u -> u.text(PROMPT)
                         .param("question", q)
                         .param("competitor", news.getCompetitorName() != null ? news.getCompetitorName() : "")
                         .param("title", news.getTitle() != null ? news.getTitle() : "")
-                        .param("content", safeContent))
+                        .param("content", safeContent)
+                        .param("relatedContext", relatedForPrompt))
                 .call()
                 .content();
         String analysis = normalizePlainText(raw != null ? raw.toString() : "");

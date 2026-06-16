@@ -17,6 +17,9 @@ spring:
     enabled: false
 
 aegis:
+  rag:
+    enabled: false
+    backfill-on-startup: false
   harvest:
     competitors: TestCorp,AcmeCo
   sources:

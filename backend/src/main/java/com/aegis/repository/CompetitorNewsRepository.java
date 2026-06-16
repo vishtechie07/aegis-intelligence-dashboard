@@ -21,4 +21,7 @@ public interface CompetitorNewsRepository extends JpaRepository<CompetitorNews, 
 
     @Query("SELECT n FROM CompetitorNews n WHERE n.createdAt >= :since ORDER BY n.createdAt DESC")
     List<CompetitorNews> findSince(@Param("since") OffsetDateTime since);
+
+    @Query("SELECT n.id FROM CompetitorNews n ORDER BY n.id")
+    List<Long> findAllIds();
 }
