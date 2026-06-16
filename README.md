@@ -1,6 +1,6 @@
 # Aegis Intelligence Engine
 
-Real-time **competitor intelligence** platform: scheduled harvesters pull public market signals, a **three-stage Spring AI pipeline** filters and interprets them, and a **Vue 3** dashboard consumes insights via **Server-Sent Events (SSE)** and REST.
+Real-time **competitor intelligence** platform: scheduled harvesters pull public market signals, a **three-stage Spring AI pipeline** filters and interprets them, and a **Vue 3** dashboard consumes insights via **Server-Sent Events (SSE)** and REST. **Ask Agent** deep-dives on any article; with **RAG** enabled (`pgvector`), answers cite the current story plus related harvested history.
 
 ---
 
@@ -30,7 +30,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 
 **Problem:** Product, strategy, and marketing teams need a single place to watch **competitive moves** (launches, hiring, partnerships, filings) without drowning in raw feeds.
 
-**Outcome:** Aegis **collects** heterogeneous sources into one schema, **reduces noise** with an LLM gate, **classifies and scores** threat, and **streams** results so operators see high-signal updates as they land—not after manual refresh.
+**Outcome:** Aegis **collects** heterogeneous sources into one schema, **reduces noise** with an LLM gate, **classifies and scores** threat, **streams** results so operators see high-signal updates as they land, and lets them **ask strategic questions** on any item—with optional **RAG** grounding answers in your indexed news corpus and showing **cited sources** in the UI.
 
 ---
 
@@ -41,7 +41,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | Area | Description |
 |------|-------------|
 | **Ingestion** | Scheduled harvesters (RSS, GDELT, Reddit, Hacker News, SEC EDAR/EDGAR-style search, GitHub, Google News, financial/contract/industry feeds per `application.yml`). |
-| **Persistence** | Raw articles in PostgreSQL; Flyway-managed schema. |
+| **Persistence** | Raw articles in PostgreSQL (`pgvector` for RAG); Flyway-managed schema (V1–V6). |
 | **AI pipeline** | Noise canceler → market analyst (category) → strategist (threat 1–10 + advice); failures never break the chain. |
 | **Realtime UX** | SSE insight stream + REST for history, threats, deep-dive, competitors, harvest status, settings. |
 | **Ask Agent + RAG** | Per-article deep-dive Q&A with pgvector retrieval over harvested news; cited sources in API + UI. |
@@ -61,6 +61,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 ### Boundaries and assumptions
 
 - **OpenAI** is the configured LLM provider (Spring AI); agents degrade safely if the key is missing.
+- **RAG** is **off by default** (`AEGIS_RAG_ENABLED=false`); enable explicitly for Ask Agent retrieval and indexing.
 - **CORS** is configurable via `AEGIS_CORS_ALLOWED_ORIGINS` — use your **exact** dashboard origin in production (not `*`).
 - **Public demo:** hosted-key trial is bound to `X-Aegis-Session` + client IP; interactive endpoints are rate-limited. Competitor list mutations can be disabled via `AEGIS_COMPETITORS_MUTATIONS_ENABLED=false` (set in `render.yaml`).
 - **Legal / ToS** of each external source are the operator’s responsibility; URLs and cadences live in configuration.
@@ -72,8 +73,9 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 - Full-stack **Java 21 + Spring Boot 3.4 (WebFlux)** with **Vue 3 + Vite + TypeScript**
 - **SSE-first** UI instead of polling-only dashboards
 - **Agent-shaped** orchestration with isolated `@Service` agents and safe fallbacks
+- **RAG over harvested news** — Spring AI `PgVectorStore`, chunking/embeddings, cited sources in API + UI
 - **Contract alignment**: Java records ↔ TypeScript interfaces
-- **Infrastructure**: Docker Compose locally; **Blueprint** for Render (Postgres + API + static site)
+- **Infrastructure**: Docker Compose locally (`pgvector/pgvector:pg16`); **Blueprint** for Render + Neon
 
 ---
 
@@ -81,8 +83,9 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 
 | Layer | Technology |
 |-------|------------|
-| Backend | Java 21, Spring Boot 3.4, WebFlux, Spring AI (OpenAI), `@Async` orchestration |
+| Backend | Java 21, Spring Boot 3.4, WebFlux, Spring AI (OpenAI + embeddings), `@Async` orchestration |
 | Data | PostgreSQL 16 + **pgvector**, Spring Data JPA, Flyway |
+| RAG | Spring AI `PgVectorStore`, OpenAI embeddings, `RagIndexingService` / `RagRetrievalService` |
 | Frontend | Vue 3 (`<script setup lang="ts">`), Vite, Pinia, Tailwind CSS |
 | Realtime | `Flux<ServerSentEvent<T>>`, Pinia + `useSse.ts` (`EventSource`) |
 | Local infra | Docker Compose, Nginx (frontend container proxies `/api` to backend) |
@@ -109,8 +112,9 @@ flowchart LR
 
   subgraph Aegis["Aegis platform"]
     H[Harvesters scheduler]
-    PG[(PostgreSQL)]
+    PG[(PostgreSQL + pgvector)]
     ORCH[Agent orchestration]
+    RAG[RAG index / retrieve]
     API[Spring WebFlux API]
     SSE[SSE publisher]
   end
@@ -123,8 +127,11 @@ flowchart LR
   H --> PG
   H --> ORCH
   ORCH --> PG
+  ORCH --> RAG
+  RAG --> PG
   ORCH --> SSE
   API --> PG
+  API --> RAG
   SSE --> API
   UI <-- REST / SSE --> API
 ```
@@ -173,6 +180,8 @@ flowchart TB
     IS[InsightService]
     CS[CompetitorService]
     DS[DeepDiveService]
+    RIS[RagIndexingService]
+    RRS[RagRetrievalService]
   end
 
   subgraph Agents
@@ -186,13 +195,18 @@ flowchart TB
   end
 
   IC --> IS
+  IC --> DS
   SC --> DCP[DynamicChatClientProvider]
   AOS --> NC
   AOS --> MA
   AOS --> ST
+  AOS --> RIS
+  DS --> RRS
   HSET --> AOS
   IS --> PG[(Repositories)]
   AOS --> PG
+  RIS --> PG
+  RRS --> PG
 ```
 
 ---
@@ -211,6 +225,7 @@ sequenceDiagram
   participant M as MarketAnalyst
   participant S as Strategist
   participant Sink as InsightService / Sinks.Many
+  participant RAG as RagIndexingService
   participant Client as Dashboard EventSource
 
   Cron->>Harv: tick
@@ -223,10 +238,35 @@ sequenceDiagram
     Orch->>M: categorize()
     Orch->>S: analyze()
     Orch->>DB: save agent_insights
+    Orch->>RAG: indexNewsAsync (if RAG enabled)
     Orch->>Sink: publish InsightEvent
     Sink-->>Client: SSE insight
   end
 ```
+
+### Ask Agent (optional RAG)
+
+```mermaid
+sequenceDiagram
+  participant UI as ThreatCard
+  participant API as InsightController
+  participant DD as DeepDiveService
+  participant RAG as RagRetrievalService
+  participant LLM as ChatClient
+  participant DB as Postgres
+
+  UI->>API: POST /deep-dive {newsId, question}
+  API->>DD: deepDive()
+  DD->>RAG: retrieve(question, article)
+  RAG->>DB: similarity search (pgvector)
+  DD->>LLM: prompt + relatedContext
+  LLM-->>DD: analysis
+  DD->>DB: save deep_dive_log (sources_json, rag_used)
+  DD-->>API: {analysis, sources, ragUsed}
+  API-->>UI: render answer + Sources used panel
+```
+
+See [Ask Agent and RAG](#ask-agent-and-rag) for env flags, backfill, and UI details.
 
 ### User API key (server default vs override)
 
@@ -259,28 +299,30 @@ Users can **PUT** `/api/settings/openai-key` to override; **DELETE** `/api/setti
 │   ├── pom.xml
 │   └── src/main/java/com/aegis/
 │       ├── agent/           # AI stages (noise, analyst, strategist)
-│       ├── config/          # CORS, WebClient, DynamicChatClientProvider, Render DB mapping
+│       ├── config/          # CORS, WebClient, RagConfig, DynamicChatClientProvider
 │       ├── controller/      # REST + SSE
-│       ├── dto/             # Java records (API contracts)
+│       ├── dto/             # Java records (API contracts, DeepDiveSource, etc.)
 │       ├── entity/          # JPA entities
 │       ├── harvester/       # Source-specific ingestion
 │       ├── repository/
-│       ├── service/         # Orchestration, insights, competitors, deep-dive
+│       ├── service/         # Orchestration, insights, competitors, deep-dive, RAG
 │       └── util/
 │   └── src/main/resources/
 │       ├── application.yml
 │       ├── application-local.yml   # optional local profile (H2)
-│       └── db/migration/             # Flyway
+│       └── db/migration/             # Flyway V1–V6 (pgvector + RAG store)
 ├── frontend/
 │   ├── Dockerfile
 │   ├── nginx.conf
+│   ├── scripts/capture-readme-screenshots.mjs
 │   └── src/
-│       ├── components/
+│       ├── components/      # ThreatCard (Ask Agent, sources, history)
 │       ├── composables/useSse.ts
 │       ├── stores/
 │       ├── types/insight.ts
 │       └── views/
-├── docker-compose.yml
+├── docker-compose.yml       # postgres: pgvector/pgvector:pg16
+├── docs/screenshots/        # README images (npm run screenshots)
 ├── render.yaml              # Render Blueprint
 └── .env.example
 ```
@@ -323,7 +365,7 @@ See `.env.example` for the canonical local template.
 cp .env.example .env
 ```
 
-Edit `.env`: set at least `POSTGRES_PASSWORD` and `OPENAI_API_KEY` for a full local experience.
+Edit `.env`: set at least `POSTGRES_PASSWORD` and `OPENAI_API_KEY`. For RAG locally, also set `AEGIS_RAG_ENABLED=true` (optional one-time `AEGIS_RAG_BACKFILL_ON_STARTUP=true`).
 
 ### 2) Run full stack (Docker)
 
@@ -505,6 +547,7 @@ cd frontend && npm run screenshots
 - Compose orders **backend after Postgres healthy** to avoid Flyway races.
 - Harvesters **self-heal**: bad upstream keys or HTTP errors are logged; the next cron tick retries.
 - **SSE** delivery uses a central reactive sink (`Sinks.Many`) as the hot path after persistence.
+- **RAG indexing** runs async after each insight; backfill is sequential to protect the DB pool—disable `AEGIS_RAG_BACKFILL_ON_STARTUP` after the first full index.
 - **Free Render** tiers may spin down the API—scheduled harvests and long-lived SSE pause until the service wakes.
 
 ---
@@ -549,6 +592,7 @@ cd frontend && npm run screenshots
 
 | Idea | Benefit |
 |------|---------|
+| **Cross-competitor RAG** | Retrieve related context across all tracked competitors, not just the current article’s competitor. |
 | **AuthN / multi-tenant** | Per-tenant competitor lists and insight isolation; OAuth2 or API keys for B2B. |
 | **Job queue** | Move heavy harvest + agent work off the web thread entirely (e.g. Redis/SQS) for burst handling. |
 | **Observability** | Structured logging correlation IDs, metrics (Micrometer + Prometheus), tracing (OpenTelemetry). |
@@ -561,7 +605,7 @@ cd frontend && npm run screenshots
 
 ## Why this project matters
 
-Raw feeds are cheap; **decisions** are expensive. Aegis compresses signal by combining durable storage, **structured LLM stages**, and a **live** UI so teams react to competitor moves with context—not noise.
+Raw feeds are cheap; **decisions** are expensive. Aegis compresses signal by combining durable storage, **structured LLM stages**, a **live** UI, and **cited Ask Agent answers** grounded in your own harvested corpus—so teams react to competitor moves with context, not noise.
 
 ---
 
