@@ -19,16 +19,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 @Service
 @Slf4j
 public class RagIndexingService {
 
+    private static final int MAX_CONCURRENT_INDEX = 2;
+
     private final RagProperties ragProperties;
     private final DynamicChatClientProvider chatClientProvider;
     private final CompetitorNewsRepository newsRepository;
     private final VectorStore vectorStore;
+    private final Semaphore indexSlots = new Semaphore(MAX_CONCURRENT_INDEX);
 
     public RagIndexingService(
             RagProperties ragProperties,
@@ -44,10 +49,44 @@ public class RagIndexingService {
     @Async
     public void indexNewsAsync(Long newsId) {
         try {
-            indexNews(newsId);
+            if (!indexSlots.tryAcquire(60, TimeUnit.SECONDS)) {
+                log.warn("[RAG] index skipped newsId={} (concurrency limit)", newsId);
+                return;
+            }
+            try {
+                indexNews(newsId);
+            } finally {
+                indexSlots.release();
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.warn("[RAG] index interrupted newsId={}", newsId);
         } catch (Exception ex) {
             log.warn("[RAG] index failed newsId={}: {}", newsId, ex.getMessage());
         }
+    }
+
+    /** Sequential startup backfill — one article at a time to avoid exhausting the DB pool. */
+    @Async
+    public void runBackfill(List<Long> newsIds) {
+        if (!ragProperties.enabled() || vectorStore == null) {
+            return;
+        }
+        int total = newsIds.size();
+        int done = 0;
+        log.info("[RAG] backfill started for {} articles", total);
+        for (Long newsId : newsIds) {
+            try {
+                indexNews(newsId);
+                done++;
+                if (done % 100 == 0 || done == total) {
+                    log.info("[RAG] backfill progress {}/{}", done, total);
+                }
+            } catch (Exception ex) {
+                log.warn("[RAG] backfill failed newsId={}: {}", newsId, ex.getMessage());
+            }
+        }
+        log.info("[RAG] backfill finished {}/{}", done, total);
     }
 
     public void indexNews(Long newsId) {

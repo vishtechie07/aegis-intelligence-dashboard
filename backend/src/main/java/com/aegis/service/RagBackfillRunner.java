@@ -26,7 +26,7 @@ public class RagBackfillRunner implements ApplicationRunner {
             return;
         }
         var ids = newsRepository.findAllIds();
-        log.info("[RAG] backfill queued for {} articles", ids.size());
-        ids.forEach(ragIndexingService::indexNewsAsync);
+        log.info("[RAG] scheduling sequential backfill for {} articles", ids.size());
+        ragIndexingService.runBackfill(ids);
     }
 }
