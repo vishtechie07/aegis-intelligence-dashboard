@@ -16,6 +16,8 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 - [Environment variables](#environment-variables)
 - [Quick start](#quick-start)
 - [API surface](#api-surface)
+- [Ask Agent and RAG](#ask-agent-and-rag)
+- [Screenshots](#screenshots)
 - [Data model](#data-model)
 - [Development and testing](#development-and-testing)
 - [Operational notes](#operational-notes)
@@ -42,7 +44,8 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | **Persistence** | Raw articles in PostgreSQL; Flyway-managed schema. |
 | **AI pipeline** | Noise canceler → market analyst (category) → strategist (threat 1–10 + advice); failures never break the chain. |
 | **Realtime UX** | SSE insight stream + REST for history, threats, deep-dive, competitors, harvest status, settings. |
-| **Configuration** | Env-based DB, OpenAI key (server + optional user override in UI), tracked competitors. |
+| **Ask Agent + RAG** | Per-article deep-dive Q&A with pgvector retrieval over harvested news; cited sources in API + UI. |
+| **Configuration** | Env-based DB, OpenAI key (server + optional user override in UI), tracked competitors, RAG feature flags. |
 | **Local run** | Docker Compose (Postgres + API + Nginx SPA). |
 | **Cloud run** | Render blueprint (`render.yaml`): API + static site; **Neon** for Postgres. |
 
@@ -79,7 +82,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | Layer | Technology |
 |-------|------------|
 | Backend | Java 21, Spring Boot 3.4, WebFlux, Spring AI (OpenAI), `@Async` orchestration |
-| Data | PostgreSQL 16, Spring Data JPA, Flyway |
+| Data | PostgreSQL 16 + **pgvector**, Spring Data JPA, Flyway |
 | Frontend | Vue 3 (`<script setup lang="ts">`), Vite, Pinia, Tailwind CSS |
 | Realtime | `Flux<ServerSentEvent<T>>`, Pinia + `useSse.ts` (`EventSource`) |
 | Local infra | Docker Compose, Nginx (frontend container proxies `/api` to backend) |
@@ -298,6 +301,9 @@ Users can **PUT** `/api/settings/openai-key` to override; **DELETE** `/api/setti
 | `AEGIS_COMPETITORS_MUTATIONS_ENABLED` | Render / prod | `false` disables POST/DELETE competitors (Blueprint default) |
 | `AEGIS_INTERACTIVE_MAX_PER_MINUTE` | Render / prod | Rate limit for Ask Agent + AI Lookup per session/IP (default `30`) |
 | `AEGIS_DEMO_TRIAL_MINUTES` | optional | Hosted-key demo length (default `5`) |
+| `AEGIS_DEMO_TRIAL_ENABLED` | optional | Set `false` to disable hosted-key trial locally |
+| `AEGIS_RAG_ENABLED` | optional | Enable pgvector RAG for Ask Agent (default `false`) |
+| `AEGIS_RAG_BACKFILL_ON_STARTUP` | optional | Index existing articles on API startup (one-time; set `false` after backfill) |
 | `VITE_API_BASE_URL` | Frontend **build** | Public API base URL (e.g. `https://aegis-api.onrender.com`) |
 
 See `.env.example` for the canonical local template.
@@ -360,7 +366,8 @@ Vite dev server proxies `/api` to `http://localhost:8080` (see `vite.config.ts`)
 | `GET` | `/api/insights/stream` | SSE stream of insights |
 | `GET` | `/api/insights/latest?limit=20` | Recent insights |
 | `GET` | `/api/insights/threats?minLevel=7` | Higher-threat filter |
-| `POST` | `/api/insights/deep-dive` | LLM deep-dive on a news item |
+| `POST` | `/api/insights/deep-dive` | LLM deep-dive on a news item (returns analysis + cited sources) |
+| `GET` | `/api/insights/deep-dive/history?newsId=` | Prior Ask Agent Q&A for that article (includes persisted sources) |
 | `GET` | `/api/settings/status` | OpenAI configuration flags |
 | `PUT` | `/api/settings/openai-key` | Set runtime user key |
 | `DELETE` | `/api/settings/openai-key` | Clear user key (revert to server key if set) |
@@ -375,7 +382,90 @@ Example deep-dive body:
 }
 ```
 
+Example deep-dive response:
+
+```json
+{
+  "analysis": "Answer:\nOpenAI's move signals…\n\nStrategic implications:\n• …",
+  "sources": [
+    {
+      "newsId": 123,
+      "title": "Headline of current article",
+      "excerpt": "First ~400 chars of body…",
+      "sourceUrl": "https://…",
+      "currentArticle": true
+    },
+    {
+      "newsId": 456,
+      "title": "Related prior story",
+      "excerpt": "…",
+      "sourceUrl": "https://…",
+      "currentArticle": false
+    }
+  ],
+  "ragUsed": true
+}
+```
+
 Additional routes exist for competitors and harvest status—see `backend/.../controller/`.
+
+---
+
+## Ask Agent and RAG
+
+**Ask Agent** (per threat card) sends a strategic question about one harvested article. When `AEGIS_RAG_ENABLED=true`, the backend:
+
+1. Embeds the question and searches **pgvector** (`aegis_rag_store`) for related chunks from the same competitor.
+2. Injects retrieved context into the deep-dive prompt.
+3. Returns structured **sources** (current article + related history) and `ragUsed: true` when retrieval contributed.
+
+```mermaid
+flowchart LR
+  Q[User question] --> DD[DeepDiveService]
+  DD --> RAG[RagRetrievalService]
+  RAG --> VS[(pgvector store)]
+  RAG --> CN[(competitor_news URLs)]
+  DD --> LLM[ChatClient]
+  LLM --> UI[ThreatCard sources panel]
+  DD --> LOG[(deep_dive_log)]
+```
+
+**UI behavior**
+
+- **Sources used (n)** — collapsible list with *This article* vs *Related* labels and clickable `sourceUrl` links.
+- **RAG** badge when vector retrieval contributed.
+- **Previous asks** — clickable history per article; restores full answer, sources, and question text.
+
+**Indexing**
+
+- New insights are indexed asynchronously after the agent pipeline (`RagIndexingService`).
+- One-time backfill: set `AEGIS_RAG_BACKFILL_ON_STARTUP=true`, wait for completion, then set back to `false` (avoids re-indexing on every deploy).
+- Local Docker uses `pgvector/pgvector:pg16`; production uses Neon with the `vector` extension (Flyway **V5**).
+
+**Flyway**
+
+| Version | Migration |
+|---------|-----------|
+| V5 | `vector` extension + `aegis_rag_store` |
+| V6 | `deep_dive_log.sources_json`, `deep_dive_log.rag_used` |
+
+---
+
+## Screenshots
+
+### Dashboard
+
+Live competitor feed with filters, harvest status, threat scoring, and **Ask Agent** on each card.
+
+![Aegis dashboard — competitor intelligence feed](docs/screenshots/dashboard.png)
+
+### Ask Agent with RAG sources and history
+
+Click **Ask Agent** on any threat card. Prior questions are selectable; the full answer and **Sources used** panel restore from `deep_dive_log`.
+
+![Ask Agent — previous asks, RAG citations, and source links](docs/screenshots/ask-agent.png)
+
+*To refresh screenshots after UI changes:* `cd frontend && npm run screenshots` (requires the Docker stack at `localhost:3000` / API at `localhost:8080`).
 
 ---
 
@@ -385,9 +475,10 @@ Additional routes exist for competitors and harvest status—see `backend/.../co
 |-------|------|
 | `competitor_news` | Normalized raw harvest rows |
 | `agent_insights` | AI output linked to `competitor_news` |
-| `deep_dive_log` | Stored deep-dive requests / history |
+| `deep_dive_log` | Ask Agent history (`question`, `analysis`, `sources_json`, `rag_used`) |
+| `aegis_rag_store` | pgvector embeddings for RAG (Spring AI `PgVectorStore`) |
 
-Migrations: `backend/src/main/resources/db/migration/`.
+Migrations: `backend/src/main/resources/db/migration/` (V1–V6).
 
 ---
 
@@ -402,6 +493,9 @@ cd frontend && npm run test
 
 # Frontend e2e
 cd frontend && npm run test:e2e
+
+# Refresh README screenshots (Docker stack running)
+cd frontend && npm run screenshots
 ```
 
 ---
@@ -433,6 +527,8 @@ cd frontend && npm run test:e2e
 4. When prompted, set:
    - **`DATABASE_URL`** — Neon connection string
    - **`OPENAI_API_KEY`** — team default OpenAI key
+   - **`AEGIS_RAG_ENABLED`** — `true` for production RAG (requires Neon + Flyway V5/V6)
+   - **`AEGIS_RAG_BACKFILL_ON_STARTUP`** — `true` once for initial index, then `false`
 5. Wait for deploy (first API Docker build may take several minutes).
 6. Open the dashboard URL; optional Settings override for OpenAI key.
 
@@ -456,7 +552,6 @@ cd frontend && npm run test:e2e
 | **AuthN / multi-tenant** | Per-tenant competitor lists and insight isolation; OAuth2 or API keys for B2B. |
 | **Job queue** | Move heavy harvest + agent work off the web thread entirely (e.g. Redis/SQS) for burst handling. |
 | **Observability** | Structured logging correlation IDs, metrics (Micrometer + Prometheus), tracing (OpenTelemetry). |
-| **Retriever / RAG** | Ground strategic answers in internal docs + harvested corpus (vector store). |
 | **Connector SDK** | Declarative source config (YAML) with shared `HarvesterSupport` patterns to add feeds without a new class each time. |
 | **Alerting** | Webhooks or email when `threatLevel` crosses thresholds or for specific categories. |
 | **Billing / quotas** | Per-key rate limits and usage dashboards for shared deployments. |
