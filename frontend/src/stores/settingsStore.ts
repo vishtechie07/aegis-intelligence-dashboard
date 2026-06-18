@@ -8,6 +8,8 @@ export interface DemoQuotaStatus {
   requiresUserKey: boolean
   trialMinutes: number
   secondsRemaining: number
+  askAgentGraceTotal: number
+  askAgentGraceRemaining: number
 }
 
 const STORAGE_KEY = 'aegis_openai_key'
@@ -34,11 +36,18 @@ export const useSettingsStore = defineStore('settings', () => {
   const demoQuotaHint = computed(() => {
     const q = demoQuota.value
     if (!q?.trialEnabled || !q.usingHostedKey || q.requiresUserKey) return null
-    const min = Math.ceil(q.secondsRemaining / 60)
-    const sec = q.secondsRemaining % 60
-    const time =
-      min > 0 ? `${min} min${min !== 1 ? 's' : ''}${sec > 0 ? ` ${sec}s` : ''}` : `${sec}s`
-    return `Hosted AI demo: ${time} left for Ask Agent & AI Lookup — then add your own key.`
+    if (q.secondsRemaining > 0) {
+      const min = Math.ceil(q.secondsRemaining / 60)
+      const sec = q.secondsRemaining % 60
+      const time =
+        min > 0 ? `${min} min${min !== 1 ? 's' : ''}${sec > 0 ? ` ${sec}s` : ''}` : `${sec}s`
+      const bonus = q.askAgentGraceTotal > 0 ? `, then ${q.askAgentGraceTotal} bonus Ask Agent asks` : ''
+      return `Hosted AI demo: ${time} left for Ask Agent & AI Lookup${bonus} — then add your own key.`
+    }
+    if (q.askAgentGraceRemaining > 0) {
+      return `Demo time ended — ${q.askAgentGraceRemaining} of ${q.askAgentGraceTotal} bonus Ask Agent asks left (AI Lookup needs your key).`
+    }
+    return null
   })
 
   function dismissAiKeyIssue() {

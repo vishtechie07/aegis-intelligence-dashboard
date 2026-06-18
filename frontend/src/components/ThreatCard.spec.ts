@@ -182,6 +182,23 @@ describe('ThreatCard', () => {
           ragUsed: false,
         }),
       } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          configured: true,
+          runtimeKeySet: false,
+          serverKeyAvailable: true,
+          demoQuota: {
+            trialEnabled: true,
+            usingHostedKey: true,
+            requiresUserKey: false,
+            trialMinutes: 5,
+            secondsRemaining: 120,
+            askAgentGraceTotal: 5,
+            askAgentGraceRemaining: 5,
+          },
+        }),
+      } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)
 
     const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })

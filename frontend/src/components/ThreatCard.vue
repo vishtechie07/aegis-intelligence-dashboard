@@ -256,6 +256,7 @@ async function submitDeepDive() {
     deepDiveSources.value = data.sources ?? []
     deepDiveRagUsed.value = data.ragUsed ?? false
     sourcesOpen.value = true
+    void settings.checkStatus()
     const h = await fetch(`${API_BASE}/api/insights/deep-dive/history?newsId=${props.insight.newsId}`)
     if (h.ok) {
       deepDiveHistory.value = await h.json()

@@ -78,7 +78,7 @@ public class DeepDiveService {
     @Transactional
     @SuppressWarnings("null")
     public DeepDiveResponse deepDive(Long newsId, String question, String sessionId, String clientIp) {
-        demoQuotaService.assertInteractiveAiAllowed(sessionId, clientIp);
+        demoQuotaService.assertAskAgentAllowed(sessionId, clientIp);
         rateLimiter.assertAllowed(demoQuotaService.resolveQuotaKey(sessionId, clientIp));
         String rawQ = question != null ? question.trim() : "";
         final String q = rawQ.length() > SessionIds.MAX_DEEP_DIVE_QUESTION_LENGTH

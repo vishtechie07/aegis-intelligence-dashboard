@@ -32,7 +32,7 @@ class SettingsControllerTest {
         when(provider.isRuntimeKeySet(SESSION)).thenReturn(false);
         when(provider.isServerKeyAvailable()).thenReturn(false);
         when(demoQuotaService.status(eq(SESSION), anyString())).thenReturn(
-                new DemoQuotaStatus(false, false, false, 5, 0));
+                new DemoQuotaStatus(false, false, false, 5, 0, 5, 5));
 
         client.get().uri("/api/settings/status")
                 .header(DemoQuotaService.SESSION_HEADER, SESSION)

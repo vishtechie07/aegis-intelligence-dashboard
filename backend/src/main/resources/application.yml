@@ -67,6 +67,7 @@ aegis:
   demo:
     trial-enabled: ${AEGIS_DEMO_TRIAL_ENABLED:true}
     trial-minutes: ${AEGIS_DEMO_TRIAL_MINUTES:5}
+    ask-agent-grace-uses: ${AEGIS_DEMO_ASK_AGENT_GRACE_USES:5}
   harvest:
     competitors: ${AEGIS_TRACKED_COMPETITORS:Microsoft,Google,Amazon,OpenAI,Anthropic}
 

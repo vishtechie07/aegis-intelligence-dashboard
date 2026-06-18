@@ -30,14 +30,21 @@ function syncDemoSecondsFromStore() {
   }
 }
 
-const demoTrialExpired = computed(() => {
+const demoTimeExpired = computed(() => {
   if (!showHostedDemo.value) return false
-  if (settings.demoQuota?.requiresUserKey) return true
   return demoSecondsLeft.value <= 0
 })
 
+const demoFullyExpired = computed(() => {
+  if (!showHostedDemo.value) return false
+  return Boolean(settings.demoQuota?.requiresUserKey)
+})
+
+const demoGraceRemaining = computed(() => settings.demoQuota?.askAgentGraceRemaining ?? 0)
+const demoGraceTotal = computed(() => settings.demoQuota?.askAgentGraceTotal ?? 0)
+
 const demoTrialCountdown = computed(() => {
-  if (demoTrialExpired.value) return null
+  if (demoTimeExpired.value) return null
   const m = Math.floor(demoSecondsLeft.value / 60)
   const s = demoSecondsLeft.value % 60
   return `${m}:${String(s).padStart(2, '0')}`
@@ -49,7 +56,7 @@ onMounted(async () => {
   await settings.checkStatus()
   syncDemoSecondsFromStore()
   countdownTimer = setInterval(() => {
-    if (!showHostedDemo.value || demoTrialExpired.value) return
+    if (!showHostedDemo.value || demoTimeExpired.value) return
     if (demoSecondsLeft.value > 0) {
       demoSecondsLeft.value--
     }
@@ -125,15 +132,21 @@ function handleKeydown(e: KeyboardEvent) {
         <div
           v-if="showHostedDemo"
           class="rounded-lg px-4 py-3 ring-1"
-          :class="demoTrialExpired
+          :class="demoTimeExpired
             ? 'bg-amber-950/40 ring-amber-800/50'
             : 'bg-blue-950/30 ring-blue-800/40'"
         >
-          <p class="text-xs font-medium" :class="demoTrialExpired ? 'text-amber-200' : 'text-blue-200'">
-            {{ demoTrialExpired ? 'Hosted AI demo ended' : 'Hosted AI demo (Ask Agent & AI Lookup)' }}
+          <p class="text-xs font-medium" :class="demoTimeExpired ? 'text-amber-200' : 'text-blue-200'">
+            {{
+              demoFullyExpired
+                ? 'Hosted AI demo ended'
+                : demoTimeExpired
+                  ? 'Demo time ended — bonus Ask Agent asks'
+                  : 'Hosted AI demo (Ask Agent & AI Lookup)'
+            }}
           </p>
           <p
-            v-if="!demoTrialExpired && demoTrialCountdown"
+            v-if="!demoTimeExpired && demoTrialCountdown"
             class="mt-1 font-mono text-lg font-semibold tabular-nums text-white"
           >
             {{ demoTrialCountdown }}
@@ -141,11 +154,22 @@ function handleKeydown(e: KeyboardEvent) {
               remaining of {{ settings.demoQuota?.trialMinutes ?? 5 }} min
             </span>
           </p>
-          <p class="mt-1.5 text-xs" :class="demoTrialExpired ? 'text-amber-200/90' : 'text-gray-400'">
+          <p
+            v-else-if="demoTimeExpired && !demoFullyExpired"
+            class="mt-1 font-mono text-lg font-semibold tabular-nums text-white"
+          >
+            {{ demoGraceRemaining }}
+            <span class="text-sm font-normal text-gray-400">
+              of {{ demoGraceTotal }} bonus Ask Agent asks left
+            </span>
+          </p>
+          <p class="mt-1.5 text-xs" :class="demoTimeExpired ? 'text-amber-200/90' : 'text-gray-400'">
             {{
-              demoTrialExpired
+              demoFullyExpired
                 ? 'Add your OpenAI key below to keep using Ask Agent and AI Lookup on your own quota.'
-                : 'News analysis uses the hosted key. After the timer, interactive AI features need your own key.'
+                : demoTimeExpired
+                  ? 'Ask Agent still works on the hosted key. AI Lookup already needs your own key.'
+                  : `News analysis uses the hosted key. After the timer, you get ${demoGraceTotal} bonus Ask Agent asks; AI Lookup needs your key sooner.`
             }}
           </p>
         </div>

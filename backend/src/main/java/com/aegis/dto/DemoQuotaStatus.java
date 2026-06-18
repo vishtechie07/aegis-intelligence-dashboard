@@ -6,4 +6,6 @@ public record DemoQuotaStatus(
         boolean usingHostedKey,
         boolean requiresUserKey,
         int trialMinutes,
-        long secondsRemaining) {}
+        long secondsRemaining,
+        int askAgentGraceTotal,
+        int askAgentGraceRemaining) {}
