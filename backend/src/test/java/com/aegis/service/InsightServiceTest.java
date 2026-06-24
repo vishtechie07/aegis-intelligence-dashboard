@@ -4,6 +4,7 @@ import com.aegis.dto.InsightEvent;
 import com.aegis.entity.AgentInsight;
 import com.aegis.entity.CompetitorNews;
 import com.aegis.repository.AgentInsightRepository;
+import com.aegis.repository.CompetitorNewsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +14,7 @@ import reactor.test.StepVerifier;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,13 +26,23 @@ import static org.mockito.Mockito.when;
 class InsightServiceTest {
 
     @Mock AgentInsightRepository insightRepository;
+    @Mock CompetitorNewsRepository newsRepository;
     @Mock CompetitorService competitorService;
+    @Mock RagAvailabilityService ragAvailabilityService;
+    @Mock RagRetrievalService ragRetrievalService;
+    @Mock InsightStoryClusterService storyClusterService;
 
     InsightService service;
 
     @BeforeEach
     void setUp() {
-        service = new InsightService(insightRepository, competitorService);
+        service = new InsightService(
+                insightRepository,
+                newsRepository,
+                competitorService,
+                ragAvailabilityService,
+                ragRetrievalService,
+                storyClusterService);
     }
 
     @Test
@@ -62,6 +74,7 @@ class InsightServiceTest {
     void getLatest_delegatesToRepository() {
         AgentInsight insight = buildInsight(1L, 8);
         when(insightRepository.findLatestWithNews(any())).thenReturn(List.of(insight));
+        when(ragAvailabilityService.indexedNewsIds(any())).thenReturn(Set.of());
 
         List<InsightEvent> results = service.getLatest(5);
 
@@ -74,6 +87,7 @@ class InsightServiceTest {
         when(competitorService.getNames()).thenReturn(List.of("Acme", "Beta"));
         AgentInsight insight1 = buildInsight(1L, 6);
         AgentInsight insight2 = buildInsight(2L, 7);
+        when(ragAvailabilityService.indexedNewsIds(any())).thenReturn(Set.of());
         when(insightRepository.findLatestWithNewsByCompetitor(eq("Acme"), any())).thenReturn(List.of(insight1));
         when(insightRepository.findLatestWithNewsByCompetitor(eq("Beta"), any())).thenReturn(List.of(insight2));
 
@@ -87,6 +101,7 @@ class InsightServiceTest {
     void getHighThreat_delegatesToRepository() {
         AgentInsight insight = buildInsight(2L, 9);
         when(insightRepository.findHighThreat(7)).thenReturn(List.of(insight));
+        when(ragAvailabilityService.indexedNewsIds(any())).thenReturn(Set.of());
 
         List<InsightEvent> results = service.getHighThreat(7);
 
@@ -97,6 +112,7 @@ class InsightServiceTest {
     @Test
     void toEvent_mapsAllFields() {
         AgentInsight insight = buildInsight(10L, 7);
+        when(ragAvailabilityService.indexedNewsIds(any())).thenReturn(Set.of(100L));
         InsightEvent event = service.toEvent(insight);
 
         assertThat(event.id()).isEqualTo(10L);
@@ -105,12 +121,15 @@ class InsightServiceTest {
         assertThat(event.threatLevel()).isEqualTo(7);
         assertThat(event.category()).isEqualTo("PRODUCT_LAUNCH");
         assertThat(event.sourceType()).isEqualTo("RSS");
+        assertThat(event.ragAvailable()).isTrue();
+        assertThat(event.contentExcerpt()).contains("Big announcement");
     }
 
     private InsightEvent sampleEvent(Long id) {
         return new InsightEvent(id, 1L, "Acme", "Title", "https://url.com",
                 "GDELT", "Strategist", "PRODUCT_LAUNCH", 7,
-                "Summary", "Advice", OffsetDateTime.now(), OffsetDateTime.now());
+                "Summary", "Advice", OffsetDateTime.now(), OffsetDateTime.now(),
+                "Title excerpt", false, null);
     }
 
     private AgentInsight buildInsight(Long id, int threatLevel) {
@@ -120,6 +139,7 @@ class InsightServiceTest {
                 .title("Big announcement")
                 .sourceUrl("https://techcrunch.com/article")
                 .sourceType("RSS")
+                .content("Article body for excerpt test")
                 .publishedAt(OffsetDateTime.now())
                 .build();
 

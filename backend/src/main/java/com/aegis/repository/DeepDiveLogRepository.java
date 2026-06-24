@@ -10,4 +10,6 @@ import java.util.List;
 public interface DeepDiveLogRepository extends JpaRepository<DeepDiveLog, Long> {
 
     List<DeepDiveLog> findTop20ByNewsIdOrderByCreatedAtDesc(Long newsId);
+
+    List<DeepDiveLog> findTop30ByOrderByCreatedAtDesc();
 }

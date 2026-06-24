@@ -18,5 +18,8 @@ public record InsightEvent(
         String summary,
         String strategicAdvice,
         OffsetDateTime publishedAt,
-        OffsetDateTime processedAt
+        OffsetDateTime processedAt,
+        String contentExcerpt,
+        boolean ragAvailable,
+        String clusterKey
 ) {}

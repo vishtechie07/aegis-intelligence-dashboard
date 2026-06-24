@@ -4,6 +4,7 @@ import com.aegis.config.RagConfig;
 import com.aegis.config.RagProperties;
 import com.aegis.dto.DeepDiveSource;
 import com.aegis.dto.RagRetrievalResult;
+import com.aegis.dto.RelatedInsightBrief;
 import com.aegis.entity.CompetitorNews;
 import com.aegis.repository.CompetitorNewsRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,51 @@ public class RagRetrievalService {
         this.ragProperties = ragProperties;
         this.newsRepository = newsRepository;
         this.vectorStore = vectorStore;
+    }
+
+    public List<RelatedInsightBrief> findRelated(Long newsId, int limit) {
+        CompetitorNews news = newsRepository.findById(newsId).orElse(null);
+        if (news == null || !ragProperties.enabled() || vectorStore == null) {
+            return List.of();
+        }
+        try {
+            String query = join(news.getTitle(), news.getContent());
+            if (query.isBlank()) {
+                return List.of();
+            }
+            String competitor = news.getCompetitorName() != null ? news.getCompetitorName() : "";
+            var filter = new FilterExpressionBuilder().eq("competitor_name", competitor).build();
+            List<Document> hits = vectorStore.similaritySearch(SearchRequest.builder()
+                    .query(query)
+                    .topK(limit + 2)
+                    .filterExpression(filter)
+                    .build());
+            if (hits == null || hits.isEmpty()) {
+                return List.of();
+            }
+            String currentId = news.getId().toString();
+            List<RelatedInsightBrief> related = new ArrayList<>();
+            for (Document doc : hits) {
+                String hitNewsId = metadata(doc, "news_id");
+                if (currentId.equals(hitNewsId)) continue;
+                Long parsedId = parseNewsId(hitNewsId);
+                if (parsedId == null) continue;
+                CompetitorNews hitNews = newsRepository.findById(parsedId).orElse(null);
+                if (hitNews == null) continue;
+                related.add(new RelatedInsightBrief(
+                        hitNews.getId(),
+                        null,
+                        hitNews.getTitle(),
+                        hitNews.getSourceUrl(),
+                        null,
+                        hitNews.getCompetitorName()));
+                if (related.size() >= limit) break;
+            }
+            return related;
+        } catch (Exception ex) {
+            log.warn("[RAG] related lookup failed newsId={}: {}", newsId, ex.getMessage());
+            return List.of();
+        }
     }
 
     public RagRetrievalResult retrieve(String question, CompetitorNews currentArticle) {

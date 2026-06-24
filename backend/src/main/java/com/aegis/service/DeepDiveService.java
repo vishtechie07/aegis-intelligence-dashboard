@@ -144,15 +144,25 @@ public class DeepDiveService {
 
     public List<DeepDiveHistoryEntry> history(Long newsId) {
         return deepDiveLogRepository.findTop20ByNewsIdOrderByCreatedAtDesc(newsId).stream()
-                .map(log -> new DeepDiveHistoryEntry(
-                        log.getId(),
-                        log.getNewsId(),
-                        log.getQuestion() != null ? log.getQuestion() : "",
-                        log.getAnalysis() != null ? log.getAnalysis() : "",
-                        log.getCreatedAt(),
-                        deserializeSources(log.getSourcesJson()),
-                        log.isRagUsed()))
+                .map(this::toHistoryEntry)
                 .toList();
+    }
+
+    public List<DeepDiveHistoryEntry> recentHistory() {
+        return deepDiveLogRepository.findTop30ByOrderByCreatedAtDesc().stream()
+                .map(this::toHistoryEntry)
+                .toList();
+    }
+
+    private DeepDiveHistoryEntry toHistoryEntry(DeepDiveLog log) {
+        return new DeepDiveHistoryEntry(
+                log.getId(),
+                log.getNewsId(),
+                log.getQuestion() != null ? log.getQuestion() : "",
+                log.getAnalysis() != null ? log.getAnalysis() : "",
+                log.getCreatedAt(),
+                deserializeSources(log.getSourcesJson()),
+                log.isRagUsed());
     }
 
     private static String serializeSources(List<DeepDiveSource> sources) {

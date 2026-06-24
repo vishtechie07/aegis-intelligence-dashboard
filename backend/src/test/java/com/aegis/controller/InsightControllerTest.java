@@ -4,6 +4,7 @@ import com.aegis.dto.DeepDiveHistoryEntry;
 import com.aegis.dto.DeepDiveResponse;
 import com.aegis.dto.DeepDiveSource;
 import com.aegis.dto.InsightEvent;
+import com.aegis.dto.InsightFeedPage;
 import com.aegis.service.DeepDiveService;
 import com.aegis.service.InsightService;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -64,18 +67,20 @@ class InsightControllerTest {
     @Test
     void getThreats_returnsHighThreatInsights() {
         InsightEvent event = sampleEvent(2L, 9);
-        when(insightService.getHighThreat(7)).thenReturn(List.of(event));
+        when(insightService.getFeed(isNull(), isNull(), eq(7), isNull(), isNull(), isNull(), eq("threat"), eq(0), eq(50), isNull()))
+                .thenReturn(new InsightFeedPage(List.of(event), 1, false));
 
         client.get().uri("/api/insights/threats?minLevel=7")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$[0].threatLevel").isEqualTo(9);
+                .jsonPath("$.items[0].threatLevel").isEqualTo(9);
     }
 
     @Test
     void getThreats_usesDefaultMinLevel() {
-        when(insightService.getHighThreat(7)).thenReturn(List.of());
+        when(insightService.getFeed(isNull(), isNull(), eq(7), isNull(), isNull(), isNull(), eq("threat"), eq(0), eq(50), isNull()))
+                .thenReturn(new InsightFeedPage(List.of(), 0, false));
 
         client.get().uri("/api/insights/threats")
                 .exchange()
@@ -148,12 +153,41 @@ class InsightControllerTest {
                 .expectBody().json("[]");
     }
 
+    @Test
+    void getFeed_returnsPaginatedPage() {
+        InsightEvent event = sampleEvent(3L, 6);
+        when(insightService.getFeed(isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), eq("processed"), eq(0), eq(50), anyList()))
+                .thenReturn(new InsightFeedPage(List.of(event), 100, true));
+
+        client.get().uri("/api/insights/feed?limit=50")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.total").isEqualTo(100)
+                .jsonPath("$.hasMore").isEqualTo(true)
+                .jsonPath("$.items[0].id").isEqualTo(3);
+    }
+
+    @Test
+    void getStats_returnsCounts() {
+        when(insightService.getStats()).thenReturn(
+                new com.aegis.dto.InsightStats(10, 8, 2, 1, 1, 0, 3));
+
+        client.get().uri("/api/insights/stats")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.totalInsights").isEqualTo(8)
+                .jsonPath("$.highThreatCount").isEqualTo(3);
+    }
+
     private InsightEvent sampleEvent(Long id, int threatLevel) {
         return new InsightEvent(id, 10L, "OpenAI", "GPT-5 Released",
                 "https://techcrunch.com/gpt5", "RSS", "Strategist",
                 "PRODUCT_LAUNCH", threatLevel,
                 "OpenAI released flagship model",
                 "Accelerate your roadmap",
-                OffsetDateTime.now(), OffsetDateTime.now());
+                OffsetDateTime.now(), OffsetDateTime.now(),
+                "GPT-5 Released excerpt", false, null);
     }
 }

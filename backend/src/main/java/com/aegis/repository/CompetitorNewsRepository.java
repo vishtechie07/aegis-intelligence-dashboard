@@ -12,6 +12,21 @@ import java.util.List;
 @Repository
 public interface CompetitorNewsRepository extends JpaRepository<CompetitorNews, Long> {
 
+    long countByCreatedAtGreaterThanEqual(OffsetDateTime since);
+
+    @Query("SELECT COUNT(n) FROM CompetitorNews n WHERE NOT EXISTS (SELECT 1 FROM AgentInsight i WHERE i.news = n)")
+    long countWithoutInsight();
+
+    @Query("""
+            SELECT COUNT(n) FROM CompetitorNews n
+            WHERE n.createdAt >= :since
+            AND NOT EXISTS (SELECT 1 FROM AgentInsight i WHERE i.news = n)
+            """)
+    long countWithoutInsightSince(@Param("since") OffsetDateTime since);
+
+    @Query("SELECT COUNT(i) FROM AgentInsight i WHERE i.processedAt >= :since")
+    long countInsightsSince(@Param("since") OffsetDateTime since);
+
     boolean existsBySourceUrl(String sourceUrl);
 
     List<CompetitorNews> findByCompetitorNameOrderByPublishedAtDesc(String competitorName);
