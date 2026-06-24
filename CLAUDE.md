@@ -12,7 +12,7 @@ postgres   PostgreSQL 16 (Docker)
 
 ## Java Backend Standards
 
-- **Records for DTOs** — `InsightEvent`, `NewsArticle`, `DeepDiveRequest` are Java records. Never use classes for data transfer.
+- **Records for DTOs** — `InsightEvent`, `InsightFeedPage`, `InsightStats`, `NewsArticle`, `DeepDiveRequest`, etc. Never use classes for data transfer.
 - **Entities** — Use `@Data @Builder @NoArgsConstructor @AllArgsConstructor` (Lombok). Never use `@Data` on entities with bidirectional relations without `@EqualsAndHashCode(exclude=...)`.
 - **Constructor injection** — Never `@Autowired` field injection.
 - **Reactive** — All HTTP client calls use `WebClient`. Never `RestTemplate`. SSE endpoint returns `Flux<ServerSentEvent<T>>`.
@@ -27,7 +27,9 @@ postgres   PostgreSQL 16 (Docker)
 - **Type-safe DTOs** — `src/types/insight.ts` interfaces must exactly mirror Java records. Any backend change requires a matching frontend type update.
 - **Pinia stores** — Composition API style (`defineStore(() => {})`). No Options API stores.
 - **`v-memo`** on `ThreatCard` — Only re-render when `id`, `isNew`, or `threatLevel` changes.
-- **Composables** — SSE logic lives in `useSse.ts`. No raw `EventSource` in components.
+- **Composables** — SSE in `useSse.ts`; feed fetch/filters in `useInsightFeed.ts` + `useFeedFilters.ts`; grouping in `useFeedGrouping.ts`. No raw `EventSource` in components.
+- **Feed UI** — `InsightFeed.vue` orchestrates `InsightFeedSidebar` + `InsightFeedList`. Read/star/dismiss in `insightStore` (localStorage).
+- **Labels** — `src/lib/insightLabels.ts` (threat tiers, source labels); `src/lib/categoryLabels.ts`.
 - **No `any`** — TypeScript strict mode is on. Use `unknown` + type guards when necessary.
 
 ## Agent Handoff Protocol
@@ -54,6 +56,7 @@ Rules:
 ## Docker
 
 - `docker-compose.yml` is the canonical run target.
+- Optional `docker-compose.override.yml` (gitignored; see `docker-compose.override.yml.example`) for Postgres port 5434.
 - Always use `docker compose up --build` for a clean rebuild.
 - The backend waits for the Postgres `healthcheck` before starting (prevents Flyway race condition).
 - Never hardcode credentials — use `.env` file (copy from `.env.example`).

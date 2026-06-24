@@ -1,0 +1,6 @@
+# Local override — Postgres on 5434 when 5432 is taken by another container.
+# Copy to docker-compose.override.yml (gitignored) in the repo root.
+services:
+  postgres:
+    ports: !reset
+      - "5434:5432"

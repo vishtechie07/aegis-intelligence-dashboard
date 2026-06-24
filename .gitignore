@@ -28,3 +28,6 @@ Thumbs.db
 
 # Docker volumes
 pgdata/
+
+# Local machine overrides (e.g. Postgres on 5434 when 5432 is taken)
+docker-compose.override.yml

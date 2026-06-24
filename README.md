@@ -30,7 +30,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 
 **Problem:** Product, strategy, and marketing teams need a single place to watch **competitive moves** (launches, hiring, partnerships, filings) without drowning in raw feeds.
 
-**Outcome:** Aegis **collects** heterogeneous sources into one schema, **reduces noise** with an LLM gate, **classifies and scores** threat, **streams** results so operators see high-signal updates as they land, and lets them **ask strategic questions** on any item—with optional **RAG** grounding answers in your indexed news corpus and showing **cited sources** in the UI.
+**Outcome:** Aegis **collects** heterogeneous sources into one schema, **reduces noise** with an LLM gate, **classifies and scores** threat, **streams** results so operators see high-signal updates as they land, and surfaces them in a **paginated, filterable dashboard** with honest DB counts—plus **Ask Agent** strategic Q&A on any item, with optional **RAG** grounding and cited sources.
 
 ---
 
@@ -43,7 +43,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | **Ingestion** | Scheduled harvesters (RSS, GDELT, Reddit, Hacker News, SEC EDAR/EDGAR-style search, GitHub, Google News, financial/contract/industry feeds per `application.yml`). |
 | **Persistence** | Raw articles in PostgreSQL (`pgvector` for RAG); Flyway-managed schema (V1–V6). |
 | **AI pipeline** | Noise canceler → market analyst (category) → strategist (threat 1–10 + advice); failures never break the chain. |
-| **Realtime UX** | SSE insight stream + REST for history, threats, deep-dive, competitors, harvest status, settings. |
+| **Realtime UX** | SSE insight stream + paginated REST feed (`/feed`, `/stats`, `/analytics`), filters, competitor drill-down, harvest status, settings. |
 | **Ask Agent + RAG** | Per-article deep-dive Q&A with pgvector retrieval over harvested news; cited sources in API + UI. |
 | **Configuration** | Env-based DB, OpenAI key (server + optional user override in UI), tracked competitors, RAG feature flags. |
 | **Local run** | Docker Compose (Postgres + API + Nginx SPA). |
@@ -74,8 +74,10 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 - **SSE-first** UI instead of polling-only dashboards
 - **Agent-shaped** orchestration with isolated `@Service` agents and safe fallbacks
 - **RAG over harvested news** — Spring AI `PgVectorStore`, chunking/embeddings, cited sources in API + UI
+- **Honest at scale** — paginated feed with DB-backed totals, pipeline stats, and server-side search (title + summary)
 - **Contract alignment**: Java records ↔ TypeScript interfaces
-- **Infrastructure**: Docker Compose locally (`pgvector/pgvector:pg16`); **Blueprint** for Render + Neon
+- **CI** — GitHub Actions runs `mvn test` + `npm run build` + Vitest on push/PR
+- **Infrastructure**: Docker Compose locally (`pgvector/pgvector:pg16`); **Blueprint** for Render + Neon (SPA rewrites for Vue Router)
 
 ---
 
@@ -90,7 +92,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | Realtime | `Flux<ServerSentEvent<T>>`, Pinia + `useSse.ts` (`EventSource`) |
 | Local infra | Docker Compose, Nginx (frontend container proxies `/api` to backend) |
 | Cloud | Render (`render.yaml`) + Neon Postgres |
-| Testing | JUnit 5 + AssertJ + Mockito; Vitest; Playwright (e2e) |
+| Testing | JUnit 5 + AssertJ + Mockito; Vitest; Playwright (e2e); GitHub Actions CI |
 
 ---
 
@@ -314,14 +316,18 @@ Users can **PUT** `/api/settings/openai-key` to override; **DELETE** `/api/setti
 ├── frontend/
 │   ├── Dockerfile
 │   ├── nginx.conf
+│   ├── public/_redirects      # SPA fallback (Render + static hosts)
 │   ├── scripts/capture-readme-screenshots.mjs
 │   └── src/
-│       ├── components/      # ThreatCard (Ask Agent, sources, history)
-│       ├── composables/useSse.ts
+│       ├── components/        # ThreatCard, InsightFeed*, PipelineStatsBar, analytics panels
+│       ├── composables/       # useSse.ts, useInsightFeed.ts, useFeedFilters.ts
+│       ├── lib/               # insightLabels.ts, categoryLabels.ts
 │       ├── stores/
 │       ├── types/insight.ts
-│       └── views/
-├── docker-compose.yml       # postgres: pgvector/pgvector:pg16
+│       └── views/             # Dashboard, CompetitorView
+├── .github/workflows/ci.yml
+├── docker-compose.yml         # postgres: pgvector/pgvector:pg16
+├── docker-compose.override.yml.example  # optional local Postgres on 5434
 ├── docs/screenshots/        # README images (npm run screenshots)
 ├── render.yaml              # Render Blueprint
 └── .env.example
@@ -377,7 +383,9 @@ docker compose up --build
 |---------|-----|
 | Frontend | http://localhost:3000 |
 | Backend | http://localhost:8080 |
-| Postgres | localhost:5432 |
+| Postgres | localhost:5432 (or **5434** if using `docker-compose.override.yml` when 5432 is busy) |
+
+**Port conflict:** If another Postgres uses 5432, copy `docker-compose.override.yml.example` to `docker-compose.override.yml` (gitignored) to bind Aegis Postgres on 5434.
 
 ### 3) Run without Docker
 
@@ -406,10 +414,16 @@ Vite dev server proxies `/api` to `http://localhost:8080` (see `vite.config.ts`)
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | `GET` | `/api/insights/stream` | SSE stream of insights |
-| `GET` | `/api/insights/latest?limit=20` | Recent insights |
-| `GET` | `/api/insights/threats?minLevel=7` | Higher-threat filter |
+| `GET` | `/api/insights/feed` | Paginated feed (`competitor`, `category`, `minThreat`, `search`, `dateFrom`, `dateTo`, `sort`, `offset`, `limit`, `ids`) |
+| `GET` | `/api/insights/stats` | DB totals + today harvested/analyzed/filtered |
+| `GET` | `/api/insights/analytics?days=7` | Category/source mix + high-threat by competitor |
+| `GET` | `/api/insights/competitor/{name}/summary` | Per-competitor breakdown |
+| `GET` | `/api/insights/{newsId}/related` | RAG-related stories for clustering/cards |
+| `GET` | `/api/insights/latest?limit=20` | Recent insights (per competitor cap) |
+| `GET` | `/api/insights/threats?minLevel=7` | Paginated high-threat feed |
 | `POST` | `/api/insights/deep-dive` | LLM deep-dive on a news item (returns analysis + cited sources) |
-| `GET` | `/api/insights/deep-dive/history?newsId=` | Prior Ask Agent Q&A for that article (includes persisted sources) |
+| `GET` | `/api/insights/deep-dive/history?newsId=` | Prior Ask Agent Q&A for that article |
+| `GET` | `/api/insights/deep-dive/history/recent` | Last 30 Ask Agent queries across all articles |
 | `GET` | `/api/settings/status` | OpenAI configuration flags |
 | `PUT` | `/api/settings/openai-key` | Set runtime user key |
 | `DELETE` | `/api/settings/openai-key` | Clear user key (revert to server key if set) |
@@ -450,6 +464,36 @@ Example deep-dive response:
 ```
 
 Additional routes exist for competitors and harvest status—see `backend/.../controller/`.
+
+### Threat scoring
+
+| Score | UI tier | Meaning |
+|-------|---------|---------|
+| 9–10 | Critical | Existential / direct niche threat (Strategist LLM) |
+| 7–8 | High | Matches **High threat ≥7** filter and API `minLevel=7` |
+| 5–6 | Elevated | Monitor and plan |
+| 1–4 | Low | Awareness only |
+
+Post-processing floors: `LEGAL` ≥5, `PARTNERSHIP` ≥4, `EDGAR` source ≥5 (`ThreatLevelAdjuster`).
+
+### Dashboard feed UX
+
+- **Paginated feed** — `GET /api/insights/feed` with honest `total` / `hasMore`; SSE prepends new items.
+- **Filters** — competitor, category, date (7d/30d/custom), search, sort, high-threat.
+- **Similar headlines** — title-token clusters in the feed (`clusterKey`); not the same as per-card **RAG** related stories.
+- **Read / star / dismiss** — stored in **browser localStorage** only; unread filter applies to the **loaded feed**, not the full DB.
+- **Starred** — IDs from localStorage, items fetched via `GET /feed?ids=1,2,3`.
+- **Competitor page** — `/competitor/:name` (SPA; `public/_redirects` + Render rewrite).
+
+Example feed response:
+
+```json
+{
+  "items": [{ "id": 1, "threatLevel": 8, "clusterKey": null, "ragAvailable": true }],
+  "total": 3721,
+  "hasMore": true
+}
+```
 
 ---
 
@@ -497,17 +541,27 @@ flowchart LR
 
 ### Dashboard
 
-Live competitor feed with filters, harvest status, threat scoring, and **Ask Agent** on each card.
+Paginated competitor feed with **honest DB counts**, sidebar filters (search, high-threat, starred, date range), pipeline stats, analytics panel, and **Ask Agent** on each card. Search runs server-side against article titles and AI summaries (~350ms debounce).
 
-![Aegis dashboard — competitor intelligence feed](docs/screenshots/dashboard.png)
+![Aegis dashboard — paginated feed, filters, pipeline stats, and threat cards](docs/screenshots/dashboard.png)
+
+### Competitor drill-down
+
+Per-competitor summary (category/source mix, high-threat count) and threat-sorted insight list at `/competitor/:name`.
+
+![Competitor intelligence page — OpenAI summary and threat-sorted feed](docs/screenshots/competitor.png)
 
 ### Ask Agent with RAG sources and history
 
-Click **Ask Agent** on any threat card. Prior questions are selectable; the full answer and **Sources used** panel restore from `deep_dive_log`.
+Click **Ask Agent** on any threat card. Prior questions are selectable; the full answer and **Sources used** panel restore from `deep_dive_log`. Per-card **semantically related (RAG)** stories are separate from feed **similar headlines** clusters.
 
 ![Ask Agent — previous asks, RAG citations, and source links](docs/screenshots/ask-agent.png)
 
-*To refresh screenshots after UI changes:* `cd frontend && npm run screenshots` (requires the Docker stack at `localhost:3000` / API at `localhost:8080`).
+*Refresh after UI changes (Docker stack at `localhost:3000`, API at `localhost:8080`):*
+
+```bash
+cd frontend && npm run screenshots
+```
 
 ---
 
@@ -530,15 +584,17 @@ Migrations: `backend/src/main/resources/db/migration/` (V1–V6).
 # Backend
 cd backend && mvn test
 
-# Frontend unit
-cd frontend && npm run test
+# Frontend unit + typecheck (also runs in CI)
+cd frontend && npm run build && npm run test
 
-# Frontend e2e
+# Frontend e2e (Playwright; starts vite preview)
 cd frontend && npm run test:e2e
 
 # Refresh README screenshots (Docker stack running)
 cd frontend && npm run screenshots
 ```
+
+**CI:** `.github/workflows/ci.yml` runs backend tests and frontend build/test on push and pull requests to `main`.
 
 ---
 
@@ -574,6 +630,7 @@ cd frontend && npm run screenshots
    - **`AEGIS_RAG_BACKFILL_ON_STARTUP`** — `true` once for initial index, then `false`
 5. Wait for deploy (first API Docker build may take several minutes).
 6. Open the dashboard URL; optional Settings override for OpenAI key.
+7. **SPA routing:** the static site ships `public/_redirects` and `render.yaml` includes a `/* → /index.html` rewrite so `/competitor/:name` works on refresh.
 
 ### URLs and CORS
 
@@ -594,12 +651,13 @@ cd frontend && npm run screenshots
 |------|---------|
 | **Cross-competitor RAG** | Retrieve related context across all tracked competitors, not just the current article’s competitor. |
 | **AuthN / multi-tenant** | Per-tenant competitor lists and insight isolation; OAuth2 or API keys for B2B. |
+| **Synced read/star state** | Server-backed bookmarks and read receipts (today: browser localStorage only). |
+| **Full-text search** | Search article body and Ask Agent history, not just title + summary. |
 | **Job queue** | Move heavy harvest + agent work off the web thread entirely (e.g. Redis/SQS) for burst handling. |
 | **Observability** | Structured logging correlation IDs, metrics (Micrometer + Prometheus), tracing (OpenTelemetry). |
 | **Connector SDK** | Declarative source config (YAML) with shared `HarvesterSupport` patterns to add feeds without a new class each time. |
 | **Alerting** | Webhooks or email when `threatLevel` crosses thresholds or for specific categories. |
-| **Billing / quotas** | Per-key rate limits and usage dashboards for shared deployments. |
-| **Hardening** | Stricter CORS allowlist, secret rotation, dependency audit in CI. |
+| **Data retention** | Scheduled archival/cleanup for large Neon datasets. |
 
 ---
 
