@@ -76,7 +76,6 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 - **RAG over harvested news** — Spring AI `PgVectorStore`, chunking/embeddings, cited sources in API + UI
 - **Honest at scale** — paginated feed with DB-backed totals, pipeline stats, and server-side search (title + summary)
 - **Contract alignment**: Java records ↔ TypeScript interfaces
-- **CI** — GitHub Actions runs `mvn test` + `npm run build` + Vitest on push/PR
 - **Infrastructure**: Docker Compose locally (`pgvector/pgvector:pg16`); **Blueprint** for Render + Neon (SPA rewrites for Vue Router)
 
 ---
@@ -92,7 +91,7 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 | Realtime | `Flux<ServerSentEvent<T>>`, Pinia + `useSse.ts` (`EventSource`) |
 | Local infra | Docker Compose, Nginx (frontend container proxies `/api` to backend) |
 | Cloud | Render (`render.yaml`) + Neon Postgres |
-| Testing | JUnit 5 + AssertJ + Mockito; Vitest; Playwright (e2e); GitHub Actions CI |
+| Testing | JUnit 5 + AssertJ + Mockito; Vitest; Playwright (e2e) |
 
 ---
 
@@ -325,7 +324,6 @@ Users can **PUT** `/api/settings/openai-key` to override; **DELETE** `/api/setti
 │       ├── stores/
 │       ├── types/insight.ts
 │       └── views/             # Dashboard, CompetitorView
-├── .github/workflows/ci.yml
 ├── docker-compose.yml         # postgres: pgvector/pgvector:pg16
 ├── docker-compose.override.yml.example  # optional local Postgres on 5434
 ├── docs/screenshots/        # README images (npm run screenshots)
@@ -418,7 +416,7 @@ Vite dev server proxies `/api` to `http://localhost:8080` (see `vite.config.ts`)
 | `GET` | `/api/insights/stats` | DB totals + today harvested/analyzed/filtered |
 | `GET` | `/api/insights/analytics?days=7` | Category/source mix + high-threat by competitor |
 | `GET` | `/api/insights/competitor/{name}/summary` | Per-competitor breakdown |
-| `GET` | `/api/insights/{newsId}/related` | RAG-related stories for clustering/cards |
+| `GET` | `/api/insights/{newsId}/related` | Semantically related stories via RAG (per-card; requires `AEGIS_RAG_ENABLED`) |
 | `GET` | `/api/insights/latest?limit=20` | Recent insights (per competitor cap) |
 | `GET` | `/api/insights/threats?minLevel=7` | Paginated high-threat feed |
 | `POST` | `/api/insights/deep-dive` | LLM deep-dive on a news item (returns analysis + cited sources) |
@@ -484,6 +482,7 @@ Post-processing floors: `LEGAL` ≥5, `PARTNERSHIP` ≥4, `EDGAR` source ≥5 (`
 - **Read / star / dismiss** — stored in **browser localStorage** only; unread filter applies to the **loaded feed**, not the full DB.
 - **Starred** — IDs from localStorage, items fetched via `GET /feed?ids=1,2,3`.
 - **Competitor page** — `/competitor/:name` (SPA; `public/_redirects` + Render rewrite).
+- **UI theme** — dark-only dashboard (no light mode or theme toggle).
 
 Example feed response:
 
@@ -492,6 +491,20 @@ Example feed response:
   "items": [{ "id": 1, "threatLevel": 8, "clusterKey": null, "ragAvailable": true }],
   "total": 3721,
   "hasMore": true
+}
+```
+
+Example stats response:
+
+```json
+{
+  "totalArticles": 7276,
+  "totalInsights": 1358,
+  "filteredArticles": 5918,
+  "todayHarvested": 495,
+  "todayAnalyzed": 61,
+  "todayFiltered": 434,
+  "highThreatCount": 427
 }
 ```
 
@@ -584,7 +597,7 @@ Migrations: `backend/src/main/resources/db/migration/` (V1–V6).
 # Backend
 cd backend && mvn test
 
-# Frontend unit + typecheck (also runs in CI)
+# Frontend unit + typecheck
 cd frontend && npm run build && npm run test
 
 # Frontend e2e (Playwright; starts vite preview)
@@ -594,7 +607,7 @@ cd frontend && npm run test:e2e
 cd frontend && npm run screenshots
 ```
 
-**CI:** `.github/workflows/ci.yml` runs backend tests and frontend build/test on push and pull requests to `main`.
+A `.github/workflows/ci.yml` workflow is included locally for optional GitHub Actions (requires `workflow` OAuth scope to push).
 
 ---
 
@@ -629,14 +642,23 @@ cd frontend && npm run screenshots
    - **`AEGIS_RAG_ENABLED`** — `true` for production RAG (requires Neon + Flyway V5/V6)
    - **`AEGIS_RAG_BACKFILL_ON_STARTUP`** — `true` once for initial index, then `false`
 5. Wait for deploy (first API Docker build may take several minutes).
-6. Open the dashboard URL; optional Settings override for OpenAI key.
+6. Open the **`aegis-dashboard`** static site URL (not the API hostname); optional Settings override for OpenAI key.
 7. **SPA routing:** the static site ships `public/_redirects` and `render.yaml` includes a `/* → /index.html` rewrite so `/competitor/:name` works on refresh.
 
 ### URLs and CORS
 
-- API: `https://aegis-api.onrender.com` (your actual hostname may differ)
-- Dashboard: `https://aegis-dashboard.onrender.com`
-- After first deploy, set `AEGIS_CORS_ALLOWED_ORIGINS` to your **exact** dashboard URL (Blueprint starts with `https://*.onrender.com` for convenience).
+Render deploys **two public URLs** — do not open the API root in a browser expecting the UI.
+
+| Service | Example hostname | Use |
+|---------|------------------|-----|
+| **Dashboard (UI)** | `https://aegis-dashboard-xxxx.onrender.com` | Open this in the browser |
+| **API (JSON/SSE)** | `https://aegis-api-xxxx.onrender.com` | REST + SSE only |
+
+- The API has **no homepage**. Visiting `https://aegis-api-xxxx.onrender.com/` returns Spring’s **404 Whitelabel page** — that is normal, not a crash.
+- Health check: `GET /actuator/health` → `{"status":"UP",...}`
+- Smoke test: `GET /api/insights/stats`
+
+After first deploy, set `AEGIS_CORS_ALLOWED_ORIGINS` to your **exact** dashboard URL (Blueprint starts with `https://*.onrender.com` for convenience).
 
 ### API keys on Render
 
