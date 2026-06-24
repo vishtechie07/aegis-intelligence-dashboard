@@ -6,6 +6,8 @@ import { useCompetitorStore } from '@/stores/competitorStore'
 import { useSse } from '@/composables/useSse'
 import InsightFeed from '@/components/InsightFeed.vue'
 import HarvestStatusBar from '@/components/HarvestStatusBar.vue'
+import PipelineStatsBar from '@/components/PipelineStatsBar.vue'
+import GlobalAskHistory from '@/components/GlobalAskHistory.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
 import CompetitorModal from '@/components/CompetitorModal.vue'
 import BootLoadingOverlay from '@/components/BootLoadingOverlay.vue'
@@ -56,11 +58,21 @@ const statusLabel = computed(() => ({
         <div class="flex items-center gap-6">
           <div class="hidden items-center gap-6 text-xs text-gray-400 sm:flex">
             <div class="flex min-w-0 flex-col items-center gap-0.5">
-              <span class="font-mono text-base font-semibold leading-none text-white tabular-nums min-h-[1.25rem]">{{ store.insights.length }}</span>
-              <span class="whitespace-nowrap text-center">insights</span>
+              <span class="font-mono text-base font-semibold leading-none text-white tabular-nums min-h-[1.25rem]">
+                {{ store.visibleInsights.length }}
+              </span>
+              <span class="whitespace-nowrap text-center">in feed</span>
             </div>
             <div class="flex min-w-0 flex-col items-center gap-0.5">
-              <span class="font-mono text-base font-semibold leading-none text-red-400 tabular-nums min-h-[1.25rem]">{{ store.highThreatInsights.length }}</span>
+              <span class="font-mono text-base font-semibold leading-none text-gray-300 tabular-nums min-h-[1.25rem]">
+                {{ store.stats?.totalInsights?.toLocaleString() ?? '—' }}
+              </span>
+              <span class="whitespace-nowrap text-center">analyzed</span>
+            </div>
+            <div class="flex min-w-0 flex-col items-center gap-0.5">
+              <span class="font-mono text-base font-semibold leading-none text-red-400 tabular-nums min-h-[1.25rem]">
+                {{ store.stats?.highThreatCount?.toLocaleString() ?? store.highThreatInsights.length }}
+              </span>
               <span class="whitespace-nowrap text-center">high-threat</span>
             </div>
             <div class="flex min-w-0 flex-col items-center gap-0.5">
@@ -147,6 +159,8 @@ const statusLabel = computed(() => ({
       </div>
 
       <HarvestStatusBar />
+      <PipelineStatsBar />
+      <GlobalAskHistory />
 
       <p class="mb-3 text-xs text-gray-500">
         <span class="inline-block border-l-4 border-cyan-400 pl-2">Colored left border</span>

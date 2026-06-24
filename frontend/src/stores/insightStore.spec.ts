@@ -10,11 +10,15 @@ function makeInsight(id: number, threatLevel = 5, competitorName = 'Acme'): Insi
     agentName: 'Strategist', category: 'PRODUCT_LAUNCH',
     threatLevel, summary: 'Summary', strategicAdvice: 'Advice',
     publishedAt: new Date().toISOString(), processedAt: new Date().toISOString(),
+    contentExcerpt: null, ragAvailable: false, clusterKey: null,
   }
 }
 
 describe('insightStore', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.removeItem('aegis-insight-ui-state')
+  })
 
   it('starts empty', () => {
     const store = useInsightStore()
@@ -41,28 +45,29 @@ describe('insightStore', () => {
     vi.useRealTimers()
   })
 
-  it('addInsight caps list at 50 items', () => {
-    const store = useInsightStore()
-    for (let i = 1; i <= 55; i++) store.addInsight(makeInsight(i))
-    expect(store.insights).toHaveLength(50)
-  })
-
-  it('loadInitial replaces all insights with isNew=false', () => {
+  it('setFeedPage replaces insights', () => {
     const store = useInsightStore()
     store.addInsight(makeInsight(1))
-    store.loadInitial([makeInsight(10), makeInsight(11)])
+    store.setFeedPage([makeInsight(10), makeInsight(11)], 2, false, false)
 
     expect(store.insights).toHaveLength(2)
-    expect(store.insights[0].isNew).toBe(false)
+    expect(store.feedTotal).toBe(2)
+  })
+
+  it('dismiss hides from visibleInsights', () => {
+    const store = useInsightStore()
+    store.dismiss(1)
+    store.setFeedPage([makeInsight(1), makeInsight(2)], 2, false, false)
+    expect(store.visibleInsights).toHaveLength(1)
   })
 
   it('highThreatInsights filters threatLevel >= 7', () => {
     const store = useInsightStore()
-    store.loadInitial([
+    store.setFeedPage([
       makeInsight(1, 5),
       makeInsight(2, 7),
       makeInsight(3, 9),
-    ])
+    ], 3, false, false)
 
     expect(store.highThreatInsights).toHaveLength(2)
     expect(store.highThreatInsights.every(i => i.threatLevel >= 7)).toBe(true)
@@ -70,11 +75,11 @@ describe('insightStore', () => {
 
   it('insightsByCompetitor groups correctly', () => {
     const store = useInsightStore()
-    store.loadInitial([
+    store.setFeedPage([
       makeInsight(1, 5, 'OpenAI'),
       makeInsight(2, 5, 'Google'),
       makeInsight(3, 5, 'OpenAI'),
-    ])
+    ], 3, false, false)
 
     const map = store.insightsByCompetitor
     expect(map.get('OpenAI')).toHaveLength(2)

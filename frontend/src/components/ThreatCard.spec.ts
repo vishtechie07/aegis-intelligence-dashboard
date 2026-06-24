@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { setActivePinia, createPinia } from 'pinia'
 import ThreatCard from './ThreatCard.vue'
 import type { Insight, SourceType } from '@/types/insight'
@@ -12,9 +13,29 @@ function makeInsight(overrides: Partial<Insight> = {}): Insight {
     threatLevel: 8, summary: 'OpenAI launched its latest model.',
     strategicAdvice: 'Accelerate your product roadmap immediately.',
     publishedAt: '2026-01-15T10:00:00Z', processedAt: '2026-01-15T10:01:00Z',
+    contentExcerpt: 'Excerpt text', ragAvailable: false, clusterKey: null,
     isNew: false,
     ...overrides,
   }
+}
+
+function askAgentButton(wrapper: ReturnType<typeof mount>) {
+  return wrapper.findAll('button').find(b => b.text().includes('Ask Agent'))!
+}
+
+const testRouter = createRouter({
+  history: createMemoryHistory(),
+  routes: [
+    { path: '/', component: { template: '<div/>' } },
+    { path: '/competitor/:name', component: { template: '<div/>' } },
+  ],
+})
+
+function mountThreatCard(overrides: Partial<Insight> = {}) {
+  return mount(ThreatCard, {
+    props: { insight: makeInsight(overrides) },
+    global: { plugins: [testRouter] },
+  })
 }
 
 describe('ThreatCard', () => {
@@ -25,24 +46,24 @@ describe('ThreatCard', () => {
   afterEach(() => vi.mocked(globalThis.fetch).mockReset())
 
   it('renders competitor name', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
+    const wrapper = mountThreatCard()
     expect(wrapper.text()).toContain('OpenAI')
   })
 
   it('renders article title as link', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
-    const link = wrapper.find('a')
-    expect(link.text()).toContain('GPT-5 has been released')
-    expect(link.attributes('href')).toBe('https://techcrunch.com/gpt5')
+    const wrapper = mountThreatCard()
+    const link = wrapper.findAll('a').find(a => a.attributes('href') === 'https://techcrunch.com/gpt5')
+    expect(link).toBeTruthy()
+    expect(link!.text()).toContain('GPT-5 has been released')
   })
 
   it('renders summary text', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
+    const wrapper = mountThreatCard()
     expect(wrapper.text()).toContain('OpenAI launched its latest model.')
   })
 
   it('renders strategic advice', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
+    const wrapper = mountThreatCard()
     expect(wrapper.text()).toContain('Accelerate your product roadmap immediately.')
   })
 
@@ -53,8 +74,8 @@ describe('ThreatCard', () => {
   }
 
   it('uses deterministic border color for same competitor', () => {
-    const a = mount(ThreatCard, { props: { insight: makeInsight({ competitorName: 'OpenAI', threatLevel: 9 }) } })
-    const b = mount(ThreatCard, { props: { insight: makeInsight({ competitorName: 'OpenAI', threatLevel: 3 }) } })
+    const a = mountThreatCard({ competitorName: 'OpenAI', threatLevel: 9 })
+    const b = mountThreatCard({ competitorName: 'OpenAI', threatLevel: 3 })
     const aClass = accentBorder(a)
     const bClass = accentBorder(b)
     expect(aClass).toBeTruthy()
@@ -62,8 +83,8 @@ describe('ThreatCard', () => {
   })
 
   it('uses different border colors for different competitors', () => {
-    const a = mount(ThreatCard, { props: { insight: makeInsight({ competitorName: 'Google' }) } })
-    const b = mount(ThreatCard, { props: { insight: makeInsight({ competitorName: 'Anthropic' }) } })
+    const a = mountThreatCard({ competitorName: 'Google' })
+    const b = mountThreatCard({ competitorName: 'Anthropic' })
     const aClass = accentBorder(a)
     const bClass = accentBorder(b)
     expect(aClass).toBeTruthy()
@@ -72,17 +93,17 @@ describe('ThreatCard', () => {
   })
 
   it('shows animate-pulse ring when isNew is true', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight({ isNew: true }) } })
+    const wrapper = mountThreatCard({ isNew: true })
     expect(wrapper.find('div').classes()).toContain('animate-pulse')
   })
 
   it('does not show animate-pulse when isNew is false', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight({ isNew: false }) } })
+    const wrapper = mountThreatCard({ isNew: false })
     expect(wrapper.find('div').classes()).not.toContain('animate-pulse')
   })
 
   it('shows RSS source icon for RSS source type', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight({ sourceType: 'RSS' }) } })
+    const wrapper = mountThreatCard({ sourceType: 'RSS' })
     expect(wrapper.text()).toContain('📰')
   })
 
@@ -93,23 +114,28 @@ describe('ThreatCard', () => {
       GOOGLENEWS: '🔍', FINANCE: '📈', CONTRACT: '🏛️', MACRO: '🏦',
     }
     for (const [sourceType, icon] of Object.entries(iconMap)) {
-      const wrapper = mount(ThreatCard, { props: { insight: makeInsight({ sourceType: sourceType as SourceType }) } })
+      const wrapper = mountThreatCard({ sourceType: sourceType as SourceType })
       expect(wrapper.text()).toContain(icon)
     }
   })
 
   it('shows category badge', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight({ category: 'HIRING' }) } })
+    const wrapper = mountThreatCard({ category: 'HIRING' })
     expect(wrapper.text()).toContain('Hiring')
   })
 
   it('shows threat level badge', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight({ threatLevel: 8 }) } })
-    expect(wrapper.text()).toContain('Threat 8/10')
+    const wrapper = mountThreatCard({ threatLevel: 8 })
+    expect(wrapper.text()).toContain('High 8/10')
+  })
+
+  it('shows critical tier at 9+', () => {
+    const wrapper = mountThreatCard({ threatLevel: 9 })
+    expect(wrapper.text()).toContain('Critical 9/10')
   })
 
   it('shows Ask Agent button', () => {
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
+    const wrapper = mountThreatCard()
     expect(wrapper.text()).toContain('Ask Agent')
   })
 
@@ -119,14 +145,13 @@ describe('ThreatCard', () => {
       json: async () => [],
     } as Response)
 
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
+    const wrapper = mountThreatCard()
 
-    expect(wrapper.find('input[type="text"]').exists() || wrapper.find('input[type="password"]').exists())
-      .toBe(false)
+    expect(wrapper.find('input[type="text"]').exists()).toBe(false)
 
-    await wrapper.find('button').trigger('click')
+    await askAgentButton(wrapper).trigger('click')
 
-    const input = wrapper.find('input')
+    const input = wrapper.find('input[type="text"]')
     expect(input.exists()).toBe(true)
     expect(wrapper.text()).toContain('Close')
   })
@@ -153,8 +178,8 @@ describe('ThreatCard', () => {
       json: async () => history,
     } as Response)
 
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
-    await wrapper.find('button').trigger('click')
+    const wrapper = mountThreatCard()
+    await askAgentButton(wrapper).trigger('click')
 
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('OpenAI won the trade secrets case')
@@ -201,13 +226,11 @@ describe('ThreatCard', () => {
       } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)
 
-    const wrapper = mount(ThreatCard, { props: { insight: makeInsight() } })
+    const wrapper = mountThreatCard()
 
-    const buttons = wrapper.findAll('button')
-    await buttons[0].trigger('click')
+    await askAgentButton(wrapper).trigger('click')
 
-    // fill question
-    await wrapper.find('input').setValue('What does this mean?')
+    await wrapper.find('input[type="text"]').setValue('What does this mean?')
 
     const askButton = wrapper.findAll('button').find(b => b.text() === 'Ask')!
     await askButton.trigger('click')

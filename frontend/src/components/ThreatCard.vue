@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
+import { fetchRelated } from '@/composables/useInsightFeed'
 import { aegisSessionHeaders } from '@/composables/useAegisSession'
+import { sourceIcon, sourceLabel, threatLabel, THREAT_TOOLTIP } from '@/lib/insightLabels'
+import { useInsightStore } from '@/stores/insightStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { Insight, DeepDiveRequest, DeepDiveResponse, DeepDiveHistoryEntry, DeepDiveSource } from '@/types/insight'
+import type { Insight, DeepDiveRequest, DeepDiveResponse, DeepDiveHistoryEntry, DeepDiveSource, RelatedInsightBrief } from '@/types/insight'
 
 const props = defineProps<{ insight: Insight }>()
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const settings = useSettingsStore()
+const insightStore = useInsightStore()
 
 const KNOWN_COMPETITOR_BORDERS: { test: (n: string) => boolean; cls: string }[] = [
   { test: n => /\bopenai\b/i.test(n), cls: 'border-emerald-400' },
@@ -42,8 +47,9 @@ const competitorBorder = computed(() => {
 })
 
 const threatBadge = computed(() => {
-  if (props.insight.threatLevel >= 8) return 'bg-red-500/20 text-red-300 ring-red-500/30'
-  if (props.insight.threatLevel >= 5) return 'bg-orange-400/20 text-orange-300 ring-orange-400/30'
+  if (props.insight.threatLevel >= 9) return 'bg-red-500/20 text-red-300 ring-red-500/30'
+  if (props.insight.threatLevel >= 7) return 'bg-orange-500/20 text-orange-300 ring-orange-500/30'
+  if (props.insight.threatLevel >= 5) return 'bg-amber-400/20 text-amber-200 ring-amber-400/30'
   return 'bg-green-500/20 text-green-300 ring-green-500/30'
 })
 
@@ -73,20 +79,19 @@ const timestampLines = computed(() => {
   return lines
 })
 
-const sourceIcon = computed(() => {
-  const map: Record<string, string> = {
-    RSS: '📰',
-    GDELT: '🌍',
-    REDDIT: '🤖',
-    HACKERNEWS: '🔶',
-    EDGAR: '📋',
-    GITHUB: '🐙',
-    GOOGLENEWS: '🔍',
-    FINANCE: '📈',
-    CONTRACT: '🏛️',
-    MACRO: '🏦',
+const sourceIconChar = computed(() => sourceIcon(props.insight.sourceType))
+const sourceName = computed(() => sourceLabel(props.insight.sourceType))
+const threatTier = computed(() => threatLabel(props.insight.threatLevel))
+
+const excerptOpen = ref(false)
+const relatedStories = ref<RelatedInsightBrief[]>([])
+const relatedOpen = ref(false)
+
+onMounted(() => {
+  insightStore.markRead(props.insight.id)
+  if (props.insight.ragAvailable) {
+    void fetchRelated(props.insight.newsId, 3).then(r => { relatedStories.value = r })
   }
-  return props.insight.sourceType ? (map[props.insight.sourceType] ?? '📡') : '📡'
 })
 
 const deepDiveOpen = ref(false)
@@ -278,12 +283,19 @@ async function submitDeepDive() {
     :class="[
       competitorBorder,
       insight.isNew ? 'animate-pulse ring-1 ring-blue-500/50' : '',
+      insightStore.isRead(insight.id) && !insight.isNew ? 'opacity-90' : '',
     ]"
   >
     <div class="p-4">
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div class="flex items-center gap-2">
-          <span class="font-bold text-white">{{ insight.competitorName }}</span>
+          <span v-if="!insightStore.isRead(insight.id)" class="size-2 shrink-0 rounded-full bg-blue-500" title="Unread in loaded feed" />
+          <RouterLink
+            :to="`/competitor/${encodeURIComponent(insight.competitorName)}`"
+            class="font-bold text-white hover:text-blue-400 transition-colors"
+          >
+            {{ insight.competitorName }}
+          </RouterLink>
           <span
             v-if="categoryLabel"
             class="rounded px-1.5 py-0.5 text-xs font-medium text-gray-300 ring-1 ring-gray-700 bg-gray-800"
@@ -293,12 +305,38 @@ async function submitDeepDive() {
         </div>
 
         <div class="flex items-center gap-2">
-          <span class="text-xs" :title="insight.sourceType ?? 'Unknown source'">{{ sourceIcon }}</span>
+          <button
+            type="button"
+            class="text-sm transition-colors"
+            :class="insightStore.isStarred(insight.id) ? 'text-amber-400' : 'text-gray-600 hover:text-amber-300'"
+            :title="insightStore.isStarred(insight.id) ? 'Unstar' : 'Star'"
+            @click="insightStore.toggleStar(insight.id)"
+          >
+            {{ insightStore.isStarred(insight.id) ? '★' : '☆' }}
+          </button>
+          <button
+            type="button"
+            class="text-xs text-gray-600 hover:text-gray-400"
+            title="Dismiss"
+            @click="insightStore.dismiss(insight.id)"
+          >
+            ✕
+          </button>
+          <span class="text-xs" :title="sourceName">{{ sourceIconChar }}</span>
+          <span class="hidden text-[10px] text-gray-500 sm:inline">{{ sourceName }}</span>
+          <span
+            v-if="insight.ragAvailable"
+            class="rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase text-violet-300 ring-1 ring-violet-500/25"
+            title="Related intel available for Ask Agent"
+          >
+            RAG
+          </span>
           <span
             class="rounded px-2 py-0.5 text-xs font-mono ring-1"
             :class="threatBadge"
+            :title="THREAT_TOOLTIP"
           >
-            Threat {{ insight.threatLevel }}/10
+            {{ threatTier }} {{ insight.threatLevel }}/10
           </span>
           <span class="flex flex-col items-end gap-0.5 text-right text-[10px] leading-tight text-gray-500">
             <span v-for="(line, idx) in timestampLines" :key="idx">{{ line.label }}: {{ line.text }}</span>
@@ -317,8 +355,52 @@ async function submitDeepDive() {
 
       <p class="mt-2 text-sm text-gray-400">{{ insight.summary }}</p>
 
-      <div class="mt-3 rounded bg-blue-950/50 px-3 py-2 text-xs text-blue-300 ring-1 ring-blue-900/50">
-        <span class="font-semibold text-blue-400">Agent Strategy: </span>{{ insight.strategicAdvice }}
+      <p v-if="insight.agentName" class="mt-1 text-[10px] text-gray-600">
+        Analyzed by <span class="text-gray-500">{{ insight.agentName }}</span>
+      </p>
+
+      <div v-if="insight.contentExcerpt" class="mt-2">
+        <button
+          type="button"
+          class="text-xs text-gray-500 hover:text-gray-300"
+          @click="excerptOpen = !excerptOpen"
+        >
+          {{ excerptOpen ? 'Hide' : 'Show' }} original excerpt
+        </button>
+        <p v-if="excerptOpen" class="mt-1 rounded bg-gray-950/80 p-2 text-xs leading-relaxed text-gray-500 ring-1 ring-gray-800 whitespace-pre-wrap">
+          {{ insight.contentExcerpt }}
+        </p>
+      </div>
+
+      <div class="mt-3 rounded border-l-2 border-blue-500/50 bg-blue-950/40 px-3 py-2 text-xs text-blue-200 ring-1 ring-blue-900/40">
+        <span class="font-semibold text-blue-400">Strategy · </span>{{ insight.strategicAdvice }}
+      </div>
+
+      <div v-if="relatedStories.length" class="mt-2">
+        <button
+          type="button"
+          class="text-xs text-gray-500 hover:text-gray-300"
+          @click="relatedOpen = !relatedOpen"
+        >
+          {{ relatedOpen ? 'Hide' : 'Show' }} {{ relatedStories.length }} semantically related
+          <span class="text-violet-400/80">(RAG)</span>
+        </button>
+        <ul v-if="relatedOpen" class="mt-1 space-y-1">
+          <li
+            v-for="r in relatedStories"
+            :key="r.newsId"
+            class="rounded bg-gray-950/60 px-2 py-1 text-xs ring-1 ring-gray-800"
+          >
+            <a
+              v-if="r.sourceUrl"
+              :href="r.sourceUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-blue-400 hover:underline"
+            >{{ r.title }}</a>
+            <span v-else class="text-gray-300">{{ r.title }}</span>
+          </li>
+        </ul>
       </div>
 
       <div class="mt-3">

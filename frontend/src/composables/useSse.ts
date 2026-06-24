@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useInsightStore } from '@/stores/insightStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { fetchAnalytics, fetchFeed, fetchStats } from '@/composables/useInsightFeed'
 import type { Insight } from '@/types/insight'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -8,6 +9,7 @@ const WAKING_API_DELAY_MS = 5_000
 const HEALTH_RETRY_MS = 2_000
 const HEALTH_MAX_MS = 90_000
 const REQUEST_TIMEOUT_MS = 15_000
+const FEED_PAGE = 50
 
 function apiUrl(path: string): string {
   const base = API_BASE.replace(/\/$/, '')
@@ -83,29 +85,31 @@ export function useSse() {
     }
   }
 
+  async function refreshMeta() {
+    try {
+      const [stats, analytics] = await Promise.all([fetchStats(), fetchAnalytics(7)])
+      store.setStats(stats)
+      store.setAnalytics(analytics)
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   async function loadInitial(): Promise<boolean> {
     const settings = useSettingsStore()
     try {
-      const res = await fetchWithTimeout(apiUrl('/api/insights/latest?limit=50'))
-      if (res.status === 401 || res.status === 403) {
+      const page = await fetchFeed({ offset: 0, limit: FEED_PAGE, sort: 'processed' })
+      store.setFeedPage(page.items, page.total, page.hasMore, false)
+      await refreshMeta()
+      return true
+    } catch (e) {
+      if (e instanceof Error && e.message.includes('401')) {
         settings.reportAiKeyIssue(
           'Insights API returned unauthorized. Add or refresh your OpenAI key in Settings.',
         )
-        store.loadInitial([])
+        store.setFeedPage([], 0, false, false)
         return true
       }
-      if (res.status === 429) {
-        settings.reportAiKeyIssue('Rate limited while loading insights. Try again shortly.')
-        store.loadInitial([])
-        return true
-      }
-      if (res.ok) {
-        const data: Insight[] = await res.json()
-        store.loadInitial(data)
-        return true
-      }
-      return false
-    } catch {
       return false
     }
   }
@@ -132,7 +136,9 @@ export function useSse() {
     store.setBootStatus('ready')
     connect()
     if (!pollInterval) {
-      pollInterval = setInterval(loadInitial, 15_000)
+      pollInterval = setInterval(() => {
+        void refreshMeta()
+      }, 60_000)
     }
   }
 
