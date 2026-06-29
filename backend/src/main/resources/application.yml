@@ -110,7 +110,7 @@ aegis:
       org-map: "{'Microsoft':'microsoft','Google':'google','Amazon':'aws','OpenAI':'openai','Anthropic':'anthropic'}"
 
     googlenews:
-      cron: "0 */5 * * * *"    # every 5 minutes — fastest real-time news source
+      cron: "0 0 * * * *"      # every hour (override via AEGIS_SOURCES_GOOGLENEWS_CRON)
 
     financial:
       cron: "0 0 * * * *"      # every hour — Yahoo Finance stock/financial data

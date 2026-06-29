@@ -25,6 +25,8 @@ services:
         value: "false"
       - key: AEGIS_INTERACTIVE_MAX_PER_MINUTE
         value: "30"
+      - key: AEGIS_SOURCES_GOOGLENEWS_CRON
+        value: "0 0 * * * *"
 
   - type: web
     name: aegis-dashboard

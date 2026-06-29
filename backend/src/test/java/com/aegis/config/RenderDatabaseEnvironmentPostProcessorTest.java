@@ -5,6 +5,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.env.MockEnvironment;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RenderDatabaseEnvironmentPostProcessorTest {
@@ -23,6 +26,15 @@ class RenderDatabaseEnvironmentPostProcessorTest {
   void toJdbcUrl_leavesJdbcUnchanged() {
     String jdbc = "jdbc:postgresql://localhost:5432/aegis";
     assertThat(RenderDatabaseEnvironmentPostProcessor.toJdbcUrl(jdbc)).isEqualTo(jdbc);
+  }
+
+  @Test
+  void extractCredentials_parsesUserAndPassword() {
+    Map<String, Object> props = new HashMap<>();
+    RenderDatabaseEnvironmentPostProcessor.extractCredentials(
+        "jdbc:postgresql://neondb_owner:secret@ep-pooler.neon.tech/neondb?sslmode=require", props);
+    assertThat(props.get("spring.datasource.username")).isEqualTo("neondb_owner");
+    assertThat(props.get("spring.datasource.password")).isEqualTo("secret");
   }
 
   @Test
