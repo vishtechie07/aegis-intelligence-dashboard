@@ -10,6 +10,7 @@ import com.aegis.entity.DeepDiveLog;
 import com.aegis.repository.CompetitorNewsRepository;
 import com.aegis.repository.DeepDiveLogRepository;
 import com.aegis.util.DeepDiveRelevanceGuard;
+import com.aegis.util.NewsTextSanitizer;
 import com.aegis.util.SessionIds;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -94,9 +95,10 @@ public class DeepDiveService {
         }
 
         RagRetrievalResult retrieval = ragRetrievalService.retrieve(q, news);
-        String safeContent = news.getContent() != null
-                ? news.getContent().substring(0, Math.min(news.getContent().length(), 1000))
-                : "No content available";
+        String stripped = news.getContent() != null ? NewsTextSanitizer.stripHtml(news.getContent()) : "";
+        String safeContent = stripped.isBlank()
+                ? "No content available"
+                : stripped.substring(0, Math.min(stripped.length(), 1000));
         String relatedContext = retrieval.relatedContext().isBlank()
                 ? "None available."
                 : retrieval.relatedContext();

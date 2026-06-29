@@ -4,6 +4,7 @@ import com.aegis.dto.NewsArticle;
 import com.aegis.entity.CompetitorNews;
 import com.aegis.repository.CompetitorNewsRepository;
 import com.aegis.service.AgentOrchestrationService;
+import com.aegis.util.NewsTextSanitizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -28,11 +29,15 @@ public class HarvesterSupport {
         if (url == null || title == null) return false;
         if (newsRepository.existsBySourceUrl(url)) return false;
 
+        String cleanTitle = NewsTextSanitizer.stripHtml(title);
+        String cleanContent = NewsTextSanitizer.stripHtml(content);
+        if (cleanTitle.isBlank()) return false;
+
         CompetitorNews saved = newsRepository.save(
                 CompetitorNews.builder()
                         .competitorName(competitor)
-                        .title(title)
-                        .content(content)
+                        .title(cleanTitle)
+                        .content(cleanContent)
                         .sourceUrl(url)
                         .publishedAt(publishedAt)
                         .sourceType(sourceType)

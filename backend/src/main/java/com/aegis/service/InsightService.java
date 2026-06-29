@@ -5,6 +5,7 @@ import com.aegis.entity.AgentInsight;
 import com.aegis.entity.CompetitorNews;
 import com.aegis.repository.AgentInsightRepository;
 import com.aegis.repository.CompetitorNewsRepository;
+import com.aegis.util.NewsTextSanitizer;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -204,11 +205,7 @@ public class InsightService {
     }
 
     private static String excerpt(String title, String content) {
-        String t = title != null ? title.trim() : "";
-        String c = content != null ? content.trim() : "";
-        String body = c.isBlank() ? t : (t.isBlank() ? c : t + "\n\n" + c);
-        if (body.isBlank()) return "";
-        return body.length() > EXCERPT_MAX ? body.substring(0, EXCERPT_MAX) + "…" : body;
+        return NewsTextSanitizer.buildExcerpt(title, content, EXCERPT_MAX);
     }
 
     private static String blankToNull(String value) {

@@ -110,6 +110,18 @@ class InsightServiceTest {
     }
 
     @Test
+    void toEvent_stripsHtmlFromGoogleNewsExcerpt() {
+        AgentInsight insight = buildInsight(10L, 7);
+        insight.getNews().setContent(
+                "<a href=\"https://news.google.com/rss/articles/CBMi\">Big announcement</a>");
+        when(ragAvailabilityService.indexedNewsIds(any())).thenReturn(Set.of(100L));
+        InsightEvent event = service.toEvent(insight);
+
+        assertThat(event.contentExcerpt()).isEqualTo("Big announcement");
+        assertThat(event.contentExcerpt()).doesNotContain("<");
+    }
+
+    @Test
     void toEvent_mapsAllFields() {
         AgentInsight insight = buildInsight(10L, 7);
         when(ragAvailabilityService.indexedNewsIds(any())).thenReturn(Set.of(100L));

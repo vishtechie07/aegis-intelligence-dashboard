@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { fetchRelated } from '@/composables/useInsightFeed'
 import { aegisSessionHeaders } from '@/composables/useAegisSession'
 import { sourceIcon, sourceLabel, threatLabel, THREAT_TOOLTIP } from '@/lib/insightLabels'
+import { meaningfulExcerpt } from '@/lib/excerptText'
 import { useInsightStore } from '@/stores/insightStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { Insight, DeepDiveRequest, DeepDiveResponse, DeepDiveHistoryEntry, DeepDiveSource, RelatedInsightBrief } from '@/types/insight'
@@ -82,6 +83,10 @@ const timestampLines = computed(() => {
 const sourceIconChar = computed(() => sourceIcon(props.insight.sourceType))
 const sourceName = computed(() => sourceLabel(props.insight.sourceType))
 const threatTier = computed(() => threatLabel(props.insight.threatLevel))
+
+const displayExcerpt = computed(() =>
+  meaningfulExcerpt(props.insight.contentExcerpt, props.insight.title, props.insight.summary),
+)
 
 const excerptOpen = ref(false)
 const relatedStories = ref<RelatedInsightBrief[]>([])
@@ -359,7 +364,7 @@ async function submitDeepDive() {
         Analyzed by <span class="text-gray-500">{{ insight.agentName }}</span>
       </p>
 
-      <div v-if="insight.contentExcerpt" class="mt-2">
+      <div v-if="displayExcerpt" class="mt-2">
         <button
           type="button"
           class="text-xs text-gray-500 hover:text-gray-300"
@@ -368,7 +373,7 @@ async function submitDeepDive() {
           {{ excerptOpen ? 'Hide' : 'Show' }} original excerpt
         </button>
         <p v-if="excerptOpen" class="mt-1 rounded bg-gray-950/80 p-2 text-xs leading-relaxed text-gray-500 ring-1 ring-gray-800 whitespace-pre-wrap">
-          {{ insight.contentExcerpt }}
+          {{ displayExcerpt }}
         </p>
       </div>
 
