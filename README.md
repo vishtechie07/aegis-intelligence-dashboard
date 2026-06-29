@@ -1,11 +1,14 @@
 # Aegis Intelligence Engine
 
-Real-time **competitor intelligence** platform: scheduled harvesters pull public market signals, a **three-stage Spring AI pipeline** filters and interprets them, and a **Vue 3** dashboard consumes insights via **Server-Sent Events (SSE)** and REST. **Ask Agent** deep-dives on any article; with **RAG** enabled (`pgvector`), answers cite the current story plus related harvested history.
+Real-time **competitor intelligence** platform: scheduled harvesters pull public market signals, a **three-stage Spring AI pipeline** filters and interprets them, and a **Vue 3** dashboard consumes insights via **Server-Sent Events (SSE)** and REST. **Ask Agent** deep-dives on any article; with optional **RAG** (`pgvector`), answers can cite the current story plus related harvested history.
+
+**Live demo:** [aegis-dashboard-c4vm.onrender.com](https://aegis-dashboard-c4vm.onrender.com) — see [Public demo](#public-demo) for what is enabled on the hosted deploy vs locally.
 
 ---
 
 ## Table of contents
 
+- [Public demo](#public-demo)
 - [Problem and outcome](#problem-and-outcome)
 - [Project scope](#project-scope)
 - [What this project demonstrates](#what-this-project-demonstrates)
@@ -23,6 +26,23 @@ Real-time **competitor intelligence** platform: scheduled harvesters pull public
 - [Operational notes](#operational-notes)
 - [Deploy on Render](#deploy-on-render)
 - [Future enhancements](#future-enhancements)
+
+---
+
+## Public demo
+
+| | |
+|---|---|
+| **Dashboard** | [https://aegis-dashboard-c4vm.onrender.com](https://aegis-dashboard-c4vm.onrender.com) |
+| **API** | [https://aegis-api-vu7l.onrender.com](https://aegis-api-vu7l.onrender.com) (REST + SSE only — no UI) |
+
+The hosted deploy is a **portfolio demo** on Render + Neon free tier:
+
+- **Ask Agent** works on any threat card using the **current article** and server `OPENAI_API_KEY` (hosted-key trial; rate-limited).
+- **RAG is disabled** (`AEGIS_RAG_ENABLED=false`) to limit Neon compute. You will not see the RAG badge, per-card semantically related stories, or multi-article citations on the public site.
+- **Tracked competitors:** `Google`, `Amazon`, `OpenAI` (see `AEGIS_TRACKED_COMPETITORS` in `render.yaml`).
+
+**RAG demo on request:** Full vector retrieval (pgvector, cited sources, related stories) is implemented in-repo. Reviewers can run it locally (`AEGIS_RAG_ENABLED=true` in Docker) or ask the maintainer to enable RAG on a deploy (`AEGIS_RAG_ENABLED=true`; one-time `AEGIS_RAG_BACKFILL_ON_STARTUP=true` if the index is empty). See [Ask Agent and RAG](#ask-agent-and-rag).
 
 ---
 
@@ -504,17 +524,17 @@ Example feed response:
 }
 ```
 
-Example stats response:
+Example stats response (shape only — live counts change as harvesters run):
 
 ```json
 {
-  "totalArticles": 7276,
-  "totalInsights": 1358,
-  "filteredArticles": 5918,
-  "todayHarvested": 495,
-  "todayAnalyzed": 61,
-  "todayFiltered": 434,
-  "highThreatCount": 427
+  "totalArticles": 6600,
+  "totalInsights": 1100,
+  "filteredArticles": 5200,
+  "todayHarvested": 120,
+  "todayAnalyzed": 18,
+  "todayFiltered": 95,
+  "highThreatCount": 380
 }
 ```
 
@@ -579,6 +599,8 @@ Per-competitor summary (category/source mix, high-threat count) and threat-sorte
 Click **Ask Agent** on any threat card. Prior questions are selectable; the full answer and **Sources used** panel restore from `deep_dive_log`. Per-card **semantically related (RAG)** stories are separate from feed **similar headlines** clusters.
 
 ![Ask Agent — previous asks, RAG citations, and source links](docs/screenshots/ask-agent.png)
+
+*Screenshot captured with `AEGIS_RAG_ENABLED=true` locally. The [public hosted demo](#public-demo) runs without vector retrieval.*
 
 *Refresh after UI changes (Docker stack at `localhost:3000`, API at `localhost:8080`):*
 
@@ -673,6 +695,8 @@ Render deploys **two public URLs** — do not open the API root in a browser exp
 - Smoke test: `GET /api/insights/stats`
 
 Set `AEGIS_CORS_ALLOWED_ORIGINS` to your **exact** dashboard URL (committed in `render.yaml` for the reference deploy).
+
+**Public demo vs RAG:** The reference deploy keeps RAG off for Neon cost. Ask Agent still answers from the selected article. To show full RAG (related stories + cited history), enable `AEGIS_RAG_ENABLED=true` on your fork or ask for a maintainer-led demo — see [Public demo](#public-demo).
 
 ### API keys on Render
 
