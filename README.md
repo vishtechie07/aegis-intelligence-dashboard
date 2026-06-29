@@ -340,15 +340,25 @@ Users can **PUT** `/api/settings/openai-key` to override; **DELETE** `/api/setti
 | `POSTGRES_PASSWORD` | Docker Compose | DB password for local stack |
 | `OPENAI_API_KEY` | `.env`, Render | Server default OpenAI key |
 | `SPRING_AI_OPENAI_API_KEY` | optional | Alias fallback for Spring property |
-| `TRACKED_COMPETITORS` | optional | Comma-separated competitor names |
-| `DATABASE_URL` | Neon → Render `aegis-api` | Full connection string from Neon (pooled URL recommended). Mapped to JDBC via `RenderDatabaseEnvironmentPostProcessor`. |
+| `TRACKED_COMPETITORS` | Docker Compose `.env` | Maps to `AEGIS_TRACKED_COMPETITORS` in the API container |
+| `AEGIS_TRACKED_COMPETITORS` | Render `aegis-api` | Comma-separated competitors to harvest (e.g. `Google,Amazon,OpenAI`) |
+| `DATABASE_URL` | Neon → Render `aegis-api` | Neon **pooled** `postgresql://…` URL. Mapped to JDBC via `RenderDatabaseEnvironmentPostProcessor`. |
+| `SPRING_DATASOURCE_URL` | Render `aegis-api` | Alternative to `DATABASE_URL`: `jdbc:postgresql://…-pooler.….neon.tech/neondb?sslmode=require` |
+| `SPRING_DATASOURCE_USERNAME` | Render `aegis-api` | Use with split JDBC URL (e.g. `neondb_owner`) |
+| `SPRING_DATASOURCE_PASSWORD` | Render `aegis-api` | Neon role password (use with split JDBC URL) |
+| `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` | Render `aegis-api` | Connection pool size (demo: `2`) |
+| `AEGIS_SOURCES_GOOGLENEWS_CRON` | Render `aegis-api` | Spring 6-field cron (default hourly: `0 0 * * * *`) |
+| `AEGIS_SOURCES_GDELT_CRON` | optional | e.g. `0 15 * * * *` (staggered hourly) |
+| `AEGIS_SOURCES_HACKERNEWS_CRON` | optional | e.g. `0 30 * * * *` |
+| `AEGIS_SOURCES_RSS_CRON` | optional | e.g. `0 0 */2 * * *` |
+| `AEGIS_SOURCES_REDDIT_CRON` | optional | e.g. `0 30 */2 * * *` |
 | `PORT` | Render / PaaS | HTTP listen port (`server.port`) |
 | `AEGIS_CORS_ALLOWED_ORIGINS` | Render / prod | Comma-separated origin patterns for browser clients |
 | `AEGIS_COMPETITORS_MUTATIONS_ENABLED` | Render / prod | `false` disables POST/DELETE competitors (Blueprint default) |
 | `AEGIS_INTERACTIVE_MAX_PER_MINUTE` | Render / prod | Rate limit for Ask Agent + AI Lookup per session/IP (default `30`) |
 | `AEGIS_DEMO_TRIAL_MINUTES` | optional | Hosted-key demo length (default `5`) |
 | `AEGIS_DEMO_TRIAL_ENABLED` | optional | Set `false` to disable hosted-key trial locally |
-| `AEGIS_RAG_ENABLED` | optional | Enable pgvector RAG for Ask Agent (default `false`) |
+| `AEGIS_RAG_ENABLED` | optional | Enable pgvector RAG for Ask Agent (default `false`; keep off on Neon free tier demo) |
 | `AEGIS_RAG_BACKFILL_ON_STARTUP` | optional | Index existing articles on API startup (one-time; set `false` after backfill) |
 | `VITE_API_BASE_URL` | Frontend **build** | Public API base URL (e.g. `https://aegis-api.onrender.com`) |
 
@@ -618,6 +628,7 @@ A `.github/workflows/ci.yml` workflow is included locally for optional GitHub Ac
 - **SSE** delivery uses a central reactive sink (`Sinks.Many`) as the hot path after persistence.
 - **RAG indexing** runs async after each insight; backfill is sequential to protect the DB pool—disable `AEGIS_RAG_BACKFILL_ON_STARTUP` after the first full index.
 - **Free Render** tiers may spin down the API—scheduled harvests and long-lived SSE pause until the service wakes.
+- **Neon free tier (100 CU-hrs/mo):** use pooled connection string, `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2`, slower harvest crons (see `render.yaml`), `AEGIS_RAG_ENABLED=false`, and **suspend `aegis-api`** when not demoing. Header stat **“competitors”** counts distinct names in the **loaded feed** (historical rows), not `AEGIS_TRACKED_COMPETITORS`.
 
 ---
 
@@ -636,29 +647,32 @@ A `.github/workflows/ci.yml` workflow is included locally for optional GitHub Ac
 1. **Neon:** Create a project → copy **pooled** connection string → keep secret (never commit).
 2. **GitHub:** Push this repo.
 3. **Render:** **New** → **Blueprint** → select repo.
-4. When prompted, set:
-   - **`DATABASE_URL`** — Neon connection string
-   - **`OPENAI_API_KEY`** — team default OpenAI key
-   - **`AEGIS_RAG_ENABLED`** — `true` for production RAG (requires Neon + Flyway V5/V6)
-   - **`AEGIS_RAG_BACKFILL_ON_STARTUP`** — `true` once for initial index, then `false`
-5. Wait for deploy (first API Docker build may take several minutes).
-6. Open the **`aegis-dashboard`** static site URL (not the API hostname); optional Settings override for OpenAI key.
-7. **SPA routing:** the static site ships `public/_redirects` and `render.yaml` includes a `/* → /index.html` rewrite so `/competitor/:name` works on refresh.
+4. When prompted, set secrets in the Render dashboard (Blueprint defaults in `render.yaml` cover the rest):
+   - **Database (pick one):**
+     - **`DATABASE_URL`** — Neon **pooled** connection string (`…-pooler.….neon.tech/…`), **or**
+     - **`SPRING_DATASOURCE_URL`** + **`SPRING_DATASOURCE_USERNAME`** + **`SPRING_DATASOURCE_PASSWORD`** — JDBC URL without embedded password (reliable on Render)
+   - **`OPENAI_API_KEY`** — team default OpenAI key (set a billing cap in OpenAI)
+   - **`AEGIS_RAG_ENABLED`** — leave `false` for demo (saves Neon compute); `true` only if you need related-story RAG
+   - **`AEGIS_RAG_BACKFILL_ON_STARTUP`** — `false` unless doing a one-time index
+5. Confirm blueprint values match your dashboard URL in **`AEGIS_CORS_ALLOWED_ORIGINS`** (e.g. `https://aegis-dashboard-c4vm.onrender.com`).
+6. Wait for deploy (first API Docker build may take several minutes).
+7. Open the **`aegis-dashboard`** static site URL (not the API hostname); optional Settings override for OpenAI key.
+8. **SPA routing:** the static site ships `public/_redirects` and `render.yaml` includes a `/* → /index.html` rewrite so `/competitor/:name` works on refresh.
 
 ### URLs and CORS
 
 Render deploys **two public URLs** — do not open the API root in a browser expecting the UI.
 
-| Service | Example hostname | Use |
-|---------|------------------|-----|
-| **Dashboard (UI)** | `https://aegis-dashboard-xxxx.onrender.com` | Open this in the browser |
-| **API (JSON/SSE)** | `https://aegis-api-xxxx.onrender.com` | REST + SSE only |
+| Service | Live example | Use |
+|---------|----------------|-----|
+| **Dashboard (UI)** | `https://aegis-dashboard-c4vm.onrender.com` | Open this in the browser |
+| **API (JSON/SSE)** | `https://aegis-api-vu7l.onrender.com` | REST + SSE only |
 
-- The API has **no homepage**. Visiting `https://aegis-api-xxxx.onrender.com/` returns Spring’s **404 Whitelabel page** — that is normal, not a crash.
+- The API has **no homepage**. Visiting the API root returns Spring’s **404 Whitelabel page** — that is normal, not a crash.
 - Health check: `GET /actuator/health` → `{"status":"UP",...}`
 - Smoke test: `GET /api/insights/stats`
 
-After first deploy, set `AEGIS_CORS_ALLOWED_ORIGINS` to your **exact** dashboard URL (Blueprint starts with `https://*.onrender.com` for convenience).
+Set `AEGIS_CORS_ALLOWED_ORIGINS` to your **exact** dashboard URL (committed in `render.yaml` for the reference deploy).
 
 ### API keys on Render
 

@@ -1,6 +1,10 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
 # Database: Neon Postgres (external). No Render-managed database (avoids free-tier DB limit).
 # Deploy: Dashboard → New → Blueprint → connect this repo
+#
+# Live reference (Jun 2026):
+#   Dashboard: https://aegis-dashboard-c4vm.onrender.com
+#   API:       https://aegis-api-vu7l.onrender.com
 
 services:
   - type: web
@@ -11,22 +15,44 @@ services:
     plan: free
     healthCheckPath: /actuator/health
     envVars:
-      # Paste from Neon dashboard (use pooled connection string for Render)
+      # Database — use ONE approach (see README):
+      #   A) DATABASE_URL = Neon pooled postgresql://… URL
+      #   B) SPRING_DATASOURCE_URL + USERNAME + PASSWORD (jdbc URL + split creds)
       - key: DATABASE_URL
         sync: false
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+      - key: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+        value: "2"
       - key: OPENAI_API_KEY
         sync: false
       - key: AEGIS_TRACKED_COMPETITORS
-        value: Microsoft,Google,Amazon,OpenAI,Anthropic
-      # Set to your exact dashboard URL after first deploy, e.g. https://aegis-dashboard-xxxx.onrender.com
+        value: Google,Amazon,OpenAI
       - key: AEGIS_CORS_ALLOWED_ORIGINS
-        value: https://*.onrender.com
+        value: https://aegis-dashboard-c4vm.onrender.com
       - key: AEGIS_COMPETITORS_MUTATIONS_ENABLED
         value: "false"
       - key: AEGIS_INTERACTIVE_MAX_PER_MINUTE
         value: "30"
+      - key: AEGIS_RAG_ENABLED
+        value: "false"
+      - key: AEGIS_RAG_BACKFILL_ON_STARTUP
+        value: "false"
+      # Harvest cadence — tuned for Neon free tier (scale-to-zero between runs)
       - key: AEGIS_SOURCES_GOOGLENEWS_CRON
         value: "0 0 * * * *"
+      - key: AEGIS_SOURCES_GDELT_CRON
+        value: "0 15 * * * *"
+      - key: AEGIS_SOURCES_HACKERNEWS_CRON
+        value: "0 30 * * * *"
+      - key: AEGIS_SOURCES_RSS_CRON
+        value: "0 0 */2 * * *"
+      - key: AEGIS_SOURCES_REDDIT_CRON
+        value: "0 30 */2 * * *"
 
   - type: web
     name: aegis-dashboard
