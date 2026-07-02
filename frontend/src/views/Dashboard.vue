@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useInsightStore } from '@/stores/insightStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useCompetitorStore } from '@/stores/competitorStore'
@@ -91,6 +92,17 @@ const statusLabel = computed(() => ({
             />
             <span class="text-xs text-gray-400">{{ statusLabel }}</span>
           </div>
+
+          <RouterLink
+            to="/help"
+            class="flex min-w-[132px] items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-400 ring-1 ring-gray-700 hover:bg-gray-800 hover:text-gray-200 transition-colors"
+            title="How to use this dashboard"
+          >
+            <svg class="size-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0ZM8.94 6.94a.75.75 0 1 1-1.061-1.061 3 3 0 1 1 2.871 5.026v.345a.75.75 0 0 1-1.5 0v-.5c0-.69.56-1.25 1.25-1.25H10a.75.75 0 0 1 0 1.5h-.086a1.5 1.5 0 0 0-1.037-3.61ZM10 15a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/>
+            </svg>
+            <span class="hidden sm:inline">Guide</span>
+          </RouterLink>
 
           <button
             class="flex min-w-[132px] items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-400 ring-1 ring-gray-700 hover:bg-gray-800 hover:text-gray-200 transition-colors"
