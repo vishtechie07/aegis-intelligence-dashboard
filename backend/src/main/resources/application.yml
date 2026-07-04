@@ -10,7 +10,10 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:aegis}
     password: ${SPRING_DATASOURCE_PASSWORD:aegis_secret}
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:10}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:2}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:600000}
+      max-lifetime: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:1800000}
       connection-timeout: 30000
 
   jpa:
@@ -56,6 +59,18 @@ management:
   endpoint:
     health:
       show-details: never
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState, db
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 aegis:
   cors:

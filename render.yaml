@@ -13,7 +13,7 @@ services:
     rootDir: backend
     dockerfilePath: ./Dockerfile
     plan: free
-    healthCheckPath: /actuator/health
+    healthCheckPath: /actuator/health/liveness
     envVars:
       # Database — use ONE approach (see README):
       #   A) DATABASE_URL = Neon pooled postgresql://… URL
@@ -28,6 +28,12 @@ services:
         sync: false
       - key: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
         value: "2"
+      - key: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+        value: "0"
+      - key: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
+        value: "120000"
+      - key: SPRING_DATASOURCE_HIKARI_MAX_LIFETIME
+        value: "300000"
       - key: OPENAI_API_KEY
         sync: false
       - key: AEGIS_TRACKED_COMPETITORS
@@ -42,17 +48,27 @@ services:
         value: "false"
       - key: AEGIS_RAG_BACKFILL_ON_STARTUP
         value: "false"
-      # Harvest cadence — tuned for Neon free tier (scale-to-zero between runs)
+      # Harvest cadence — every 6h, staggered (Neon scale-to-zero between runs)
       - key: AEGIS_SOURCES_GOOGLENEWS_CRON
-        value: "0 0 * * * *"
+        value: "0 0 */6 * * *"
       - key: AEGIS_SOURCES_GDELT_CRON
-        value: "0 15 * * * *"
+        value: "0 15 */6 * * *"
       - key: AEGIS_SOURCES_HACKERNEWS_CRON
-        value: "0 30 * * * *"
+        value: "0 30 */6 * * *"
       - key: AEGIS_SOURCES_RSS_CRON
-        value: "0 0 */2 * * *"
+        value: "0 45 */6 * * *"
       - key: AEGIS_SOURCES_REDDIT_CRON
-        value: "0 30 */2 * * *"
+        value: "0 5 */6 * * *"
+      - key: AEGIS_SOURCES_GITHUB_CRON
+        value: "0 10 */6 * * *"
+      - key: AEGIS_SOURCES_FINANCIAL_CRON
+        value: "0 20 */6 * * *"
+      - key: AEGIS_SOURCES_EDGAR_CRON
+        value: "0 25 */6 * * *"
+      - key: AEGIS_SOURCES_CONTRACTS_CRON
+        value: "0 35 */6 * * *"
+      - key: AEGIS_SOURCES_INDUSTRY_CRON
+        value: "0 0 6 * * *"
 
   - type: web
     name: aegis-dashboard
