@@ -1,5 +1,6 @@
 package com.aegis.repository;
 
+import com.aegis.dto.SourceLastHarvest;
 import com.aegis.entity.CompetitorNews;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -39,4 +40,12 @@ public interface CompetitorNewsRepository extends JpaRepository<CompetitorNews, 
 
     @Query("SELECT n.id FROM CompetitorNews n ORDER BY n.id")
     List<Long> findAllIds();
+
+    @Query("""
+            SELECT new com.aegis.dto.SourceLastHarvest(n.sourceType, MAX(n.createdAt))
+            FROM CompetitorNews n
+            WHERE n.sourceType IS NOT NULL AND n.sourceType <> ''
+            GROUP BY n.sourceType
+            """)
+    List<SourceLastHarvest> findLatestHarvestBySource();
 }

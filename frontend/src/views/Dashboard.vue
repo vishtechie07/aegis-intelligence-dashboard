@@ -38,11 +38,16 @@ const statusColor = computed(() => ({
   disconnected: 'bg-red-400',
 }[store.connectionStatus]))
 
-const statusLabel = computed(() => ({
-  connecting: 'Connecting...',
-  connected: 'Live',
-  disconnected: 'Disconnected',
-}[store.connectionStatus]))
+const statusLabel = computed(() => {
+  if (store.bootStatus === 'waking-api') return 'Waking API…'
+  if (store.bootStatus === 'syncing') return 'Syncing feed…'
+  if (store.isBootLoading) return 'Connecting…'
+  return ({
+    connecting: 'Connecting...',
+    connected: 'Live',
+    disconnected: 'Disconnected',
+  } as const)[store.connectionStatus]
+})
 </script>
 
 <template>
@@ -134,6 +139,26 @@ const statusLabel = computed(() => ({
     </header>
 
     <main class="mx-auto max-w-7xl px-4 py-6">
+      <div
+        v-if="store.isBootLoading"
+        class="mb-4 flex items-center gap-3 rounded-lg border border-blue-900/50 bg-blue-950/30 px-4 py-3"
+        role="status"
+        aria-live="polite"
+      >
+        <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-blue-400" />
+        <p class="text-sm text-blue-200">
+          <template v-if="store.bootStatus === 'waking-api'">
+            Starting intelligence engine — cloud API cold start can take up to two minutes.
+          </template>
+          <template v-else-if="store.bootStatus === 'syncing'">
+            API is up. Loading insights and opening the live stream…
+          </template>
+          <template v-else>
+            Connecting to the intelligence engine…
+          </template>
+        </p>
+      </div>
+
       <div
         v-if="!settings.isConfigured"
         class="mb-4 flex items-center gap-3 rounded-lg bg-amber-950/40 px-4 py-3 ring-1 ring-amber-700/40"

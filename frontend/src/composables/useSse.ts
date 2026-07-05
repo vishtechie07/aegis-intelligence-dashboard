@@ -7,9 +7,10 @@ import type { Insight } from '@/types/insight'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const WAKING_API_DELAY_MS = 5_000
 const HEALTH_RETRY_MS = 2_000
-const HEALTH_MAX_MS = 90_000
+const HEALTH_MAX_MS = 120_000
 const REQUEST_TIMEOUT_MS = 15_000
 const FEED_PAGE = 50
+const META_POLL_MS = 300_000
 
 function apiUrl(path: string): string {
   const base = API_BASE.replace(/\/$/, '')
@@ -45,7 +46,8 @@ export function useSse() {
   }
 
   function healthCheckUrl(): string {
-    return API_BASE ? apiUrl('/actuator/health') : apiUrl('/api/settings/status')
+    if (!API_BASE) return apiUrl('/api/settings/status')
+    return apiUrl('/actuator/health/liveness')
   }
 
   async function waitForApi(): Promise<boolean> {
@@ -86,6 +88,7 @@ export function useSse() {
   }
 
   async function refreshMeta() {
+    if (document.hidden) return
     try {
       const [stats, analytics] = await Promise.all([fetchStats(), fetchAnalytics(7)])
       store.setStats(stats)
@@ -114,32 +117,36 @@ export function useSse() {
     }
   }
 
+  function startMetaPoll() {
+    if (pollInterval) return
+    pollInterval = setInterval(() => {
+      void refreshMeta()
+    }, META_POLL_MS)
+  }
+
   async function bootstrap() {
     clearWakingHint()
     store.setBootStatus('loading')
     scheduleWakingHint()
 
     const apiUp = await waitForApi()
+    clearWakingHint()
     if (!apiUp) {
-      clearWakingHint()
       store.setBootStatus('error')
       return
     }
 
+    store.setBootStatus('syncing')
+    connect()
+
     const loaded = await loadInitial()
-    clearWakingHint()
     if (!loaded) {
       store.setBootStatus('error')
       return
     }
 
     store.setBootStatus('ready')
-    connect()
-    if (!pollInterval) {
-      pollInterval = setInterval(() => {
-        void refreshMeta()
-      }, 60_000)
-    }
+    startMetaPoll()
   }
 
   function retryBootstrap() {

@@ -6,7 +6,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const status = ref<Record<string, string>>({})
 const loadError = ref(false)
 
-const POLL_MS = 60_000
+const POLL_MS = 300_000
 let timer: ReturnType<typeof setInterval> | null = null
 
 function formatShort(iso: string): string {
@@ -22,6 +22,7 @@ const entries = computed(() =>
 )
 
 async function fetchStatus() {
+  if (document.hidden) return
   try {
     const res = await fetch(`${API_BASE}/api/harvest/status`)
     if (!res.ok) throw new Error(String(res.status))
@@ -32,13 +33,35 @@ async function fetchStatus() {
   }
 }
 
+function startPoll() {
+  if (timer) return
+  timer = setInterval(() => void fetchStatus(), POLL_MS)
+}
+
+function stopPoll() {
+  if (!timer) return
+  clearInterval(timer)
+  timer = null
+}
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    stopPoll()
+    return
+  }
+  void fetchStatus()
+  startPoll()
+}
+
 onMounted(() => {
-  fetchStatus()
-  timer = setInterval(fetchStatus, POLL_MS)
+  void fetchStatus()
+  startPoll()
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
+  stopPoll()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 </script>
 
@@ -63,6 +86,6 @@ onUnmounted(() => {
         <span class="text-gray-400">{{ e.label }}</span>
       </span>
     </div>
-    <p v-else class="text-xs text-gray-500">No harvest runs recorded yet (starts after first cron cycle).</p>
+    <p v-else class="text-xs text-gray-500">No articles ingested yet from tracked sources.</p>
   </div>
 </template>

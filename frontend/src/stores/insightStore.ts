@@ -28,7 +28,7 @@ function persistUiState(state: InsightUiState) {
   localStorage.setItem(UI_STATE_KEY, JSON.stringify(state))
 }
 
-export type BootStatus = 'loading' | 'waking-api' | 'ready' | 'error'
+export type BootStatus = 'loading' | 'waking-api' | 'syncing' | 'ready' | 'error'
 
 export const useInsightStore = defineStore('insights', () => {
   const insights = ref<Insight[]>([])
@@ -157,7 +157,10 @@ export const useInsightStore = defineStore('insights', () => {
   }
 
   const isBootLoading = computed(
-    () => bootStatus.value === 'loading' || bootStatus.value === 'waking-api',
+    () =>
+      bootStatus.value === 'loading'
+      || bootStatus.value === 'waking-api'
+      || bootStatus.value === 'syncing',
   )
 
   function incrementError() {
