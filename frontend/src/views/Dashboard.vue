@@ -154,13 +154,16 @@ const statusLabel = computed(() => {
         <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-blue-400" />
         <p class="text-sm text-blue-200">
           <template v-if="store.bootStatus === 'waking-api'">
-            Starting intelligence engine — cloud API cold start can take up to three minutes.
+            Starting intelligence engine — cloud API cold start can take up to four minutes.
           </template>
           <template v-else-if="store.bootStatus === 'syncing'">
-            <span v-if="store.bootLoadAttempt > 1">
+            <span v-if="store.bootCycle > 1 && store.bootLoadAttempt <= 1">
+              Still waking — full retry {{ store.bootCycle }} of 3…
+            </span>
+            <span v-else-if="store.bootLoadAttempt > 1">
               Loading insights (attempt {{ store.bootLoadAttempt }} of 5)…
             </span>
-            <span v-else>API is ready. Loading insights and opening the live stream…</span>
+            <span v-else>API is ready. Loading insights…</span>
           </template>
           <template v-else>
             Connecting to the intelligence engine…

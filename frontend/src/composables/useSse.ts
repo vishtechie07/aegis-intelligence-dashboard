@@ -6,13 +6,15 @@ import type { Insight } from '@/types/insight'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const WAKING_API_DELAY_MS = 5_000
 const HEALTH_RETRY_MS = 2_000
-const HEALTH_MAX_MS = 180_000
+const HEALTH_MAX_MS = 240_000
 const HEALTH_REQUEST_TIMEOUT_MS = 10_000
 const BOOT_REQUEST_TIMEOUT_MS = 45_000
 const FEED_PAGE = 50
 const META_POLL_MS = 300_000
 const BOOT_LOAD_RETRIES = 5
 const BOOT_LOAD_RETRY_DELAYS_MS = [0, 3_000, 5_000, 8_000, 12_000]
+const BOOTSTRAP_CYCLES = 3
+const BOOTSTRAP_CYCLE_DELAYS_MS = [0, 8_000, 12_000]
 
 function apiUrl(path: string): string {
   const base = API_BASE.replace(/\/$/, '')
@@ -49,6 +51,14 @@ export function useSse() {
       clearTimeout(wakingTimer)
       wakingTimer = null
     }
+  }
+
+  function disconnectSse() {
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = null
+    eventSource?.close()
+    eventSource = null
+    store.setStatus('disconnected')
   }
 
   function healthCheckUrl(): string {
@@ -163,7 +173,7 @@ export function useSse() {
     }, META_POLL_MS)
   }
 
-  async function bootstrap() {
+  async function bootstrapOnce(): Promise<boolean> {
     clearWakingHint()
     store.setBootLoadAttempt(0)
     store.setBootStatus('loading')
@@ -171,27 +181,38 @@ export function useSse() {
 
     const apiUp = await waitForApi()
     clearWakingHint()
-    if (!apiUp) {
-      store.setBootStatus('error')
-      return
-    }
+    if (!apiUp) return false
 
     store.setBootStatus('syncing')
-    connect()
-
     const loaded = await loadInitialWithRetry()
-    if (!loaded) {
-      store.setBootStatus('error')
-      return
+    return loaded
+  }
+
+  async function bootstrap() {
+    disconnectSse()
+    store.setBootCycle(0)
+
+    for (let cycle = 0; cycle < BOOTSTRAP_CYCLES; cycle++) {
+      store.setBootCycle(cycle + 1)
+      if (BOOTSTRAP_CYCLE_DELAYS_MS[cycle] > 0) {
+        store.setBootStatus('syncing')
+        await sleep(BOOTSTRAP_CYCLE_DELAYS_MS[cycle])
+      }
+
+      if (await bootstrapOnce()) {
+        store.setBootCycle(0)
+        store.setBootStatus('ready')
+        connect()
+        startMetaPoll()
+        return
+      }
     }
 
-    store.setBootStatus('ready')
-    startMetaPoll()
+    store.setBootCycle(0)
+    store.setBootStatus('error')
   }
 
   function retryBootstrap() {
-    eventSource?.close()
-    eventSource = null
     void bootstrap()
   }
 
@@ -201,9 +222,8 @@ export function useSse() {
 
   onUnmounted(() => {
     clearWakingHint()
-    if (retryTimer) clearTimeout(retryTimer)
     if (pollInterval) clearInterval(pollInterval)
-    eventSource?.close()
+    disconnectSse()
   })
 
   return { retryBootstrap }
