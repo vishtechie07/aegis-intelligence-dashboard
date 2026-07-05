@@ -72,7 +72,12 @@ onUnmounted(() => {
     aria-label="Harvester activity"
   >
     <div class="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-      <span class="text-xs font-semibold uppercase tracking-wider text-gray-500">Harvest sources</span>
+      <div>
+        <span class="text-xs font-semibold uppercase tracking-wider text-gray-500">Last ingest by source</span>
+        <p class="mt-0.5 text-[11px] leading-snug text-gray-500">
+          When a new article was last saved — not cron time. Harvesters run every 6h (staggered); if nothing new is found, the date stays put.
+        </p>
+      </div>
       <span v-if="loadError" class="text-xs text-amber-400">Status unavailable</span>
     </div>
     <div v-if="entries.length" class="flex flex-wrap gap-2">
@@ -80,7 +85,7 @@ onUnmounted(() => {
         v-for="e in entries"
         :key="e.source"
         class="inline-flex items-center gap-1 rounded-md bg-gray-950/80 px-2 py-1 text-[11px] text-gray-300 ring-1 ring-gray-800"
-        :title="e.iso"
+        :title="`Last new article ingested: ${e.label}`"
       >
         <span class="font-mono uppercase text-gray-500">{{ e.source }}</span>
         <span class="text-gray-400">{{ e.label }}</span>
