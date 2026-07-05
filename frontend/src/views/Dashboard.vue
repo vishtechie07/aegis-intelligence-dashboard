@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useInsightStore } from '@/stores/insightStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -23,7 +23,6 @@ const competitorsOpen = ref(false)
 
 onMounted(() => {
   settings.restoreFromStorage()
-  competitors.fetchAll()
   const quotaTimer = setInterval(() => {
     if (settings.serverKeyAvailable && !settings.isRuntimeKey) {
       void settings.checkStatus()
@@ -31,6 +30,13 @@ onMounted(() => {
   }, 30_000)
   onUnmounted(() => clearInterval(quotaTimer))
 })
+
+watch(
+  () => store.isApiReady,
+  ready => {
+    if (ready) void competitors.fetchAll()
+  },
+)
 
 const statusColor = computed(() => ({
   connecting: 'bg-yellow-400',
@@ -148,10 +154,13 @@ const statusLabel = computed(() => {
         <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-blue-400" />
         <p class="text-sm text-blue-200">
           <template v-if="store.bootStatus === 'waking-api'">
-            Starting intelligence engine — cloud API cold start can take up to two minutes.
+            Starting intelligence engine — cloud API cold start can take up to three minutes.
           </template>
           <template v-else-if="store.bootStatus === 'syncing'">
-            API is up. Loading insights and opening the live stream…
+            <span v-if="store.bootLoadAttempt > 1">
+              Loading insights (attempt {{ store.bootLoadAttempt }} of 5)…
+            </span>
+            <span v-else>API is ready. Loading insights and opening the live stream…</span>
           </template>
           <template v-else>
             Connecting to the intelligence engine…

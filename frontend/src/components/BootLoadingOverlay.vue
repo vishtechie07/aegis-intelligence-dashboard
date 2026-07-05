@@ -10,7 +10,7 @@ const visible = computed(() => store.bootStatus === 'error')
 const title = computed(() => 'Could not reach the API')
 
 const detail = computed(
-  () => 'The backend may be offline or still waking up. Check that the API is running, then retry.',
+  () => 'Automatic retries were exhausted. The backend may still be waking — wait a moment, then retry.',
 )
 </script>
 

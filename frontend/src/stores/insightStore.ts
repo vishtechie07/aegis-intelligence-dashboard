@@ -163,6 +163,14 @@ export const useInsightStore = defineStore('insights', () => {
       || bootStatus.value === 'syncing',
   )
 
+  const isApiReady = computed(() => bootStatus.value === 'ready')
+
+  const bootLoadAttempt = ref(0)
+
+  function setBootLoadAttempt(attempt: number) {
+    bootLoadAttempt.value = attempt
+  }
+
   function incrementError() {
     errorCount.value++
   }
@@ -177,6 +185,8 @@ export const useInsightStore = defineStore('insights', () => {
     connectionStatus,
     bootStatus,
     isBootLoading,
+    isApiReady,
+    bootLoadAttempt,
     errorCount,
     highThreatInsights,
     starredInsights,
@@ -196,6 +206,7 @@ export const useInsightStore = defineStore('insights', () => {
     setAnalytics,
     setStatus,
     setBootStatus,
+    setBootLoadAttempt,
     incrementError,
   }
 })

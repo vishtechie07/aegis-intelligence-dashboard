@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { useInsightStore } from '@/stores/insightStore'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+const store = useInsightStore()
 
 const status = ref<Record<string, string>>({})
 const loadError = ref(false)
@@ -22,7 +24,7 @@ const entries = computed(() =>
 )
 
 async function fetchStatus() {
-  if (document.hidden) return
+  if (document.hidden || !store.isApiReady) return
   try {
     const res = await fetch(`${API_BASE}/api/harvest/status`)
     if (!res.ok) throw new Error(String(res.status))
@@ -34,7 +36,7 @@ async function fetchStatus() {
 }
 
 function startPoll() {
-  if (timer) return
+  if (timer || !store.isApiReady) return
   timer = setInterval(() => void fetchStatus(), POLL_MS)
 }
 
@@ -53,11 +55,20 @@ function onVisibilityChange() {
   startPoll()
 }
 
-onMounted(() => {
-  void fetchStatus()
-  startPoll()
-  document.addEventListener('visibilitychange', onVisibilityChange)
-})
+watch(
+  () => store.isApiReady,
+  ready => {
+    if (ready) {
+      void fetchStatus()
+      startPoll()
+      document.addEventListener('visibilitychange', onVisibilityChange)
+      return
+    }
+    stopPoll()
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+  },
+  { immediate: true },
+)
 
 onUnmounted(() => {
   stopPoll()
@@ -91,6 +102,7 @@ onUnmounted(() => {
         <span class="text-gray-400">{{ e.label }}</span>
       </span>
     </div>
-    <p v-else class="text-xs text-gray-500">No articles ingested yet from tracked sources.</p>
+    <p v-else-if="store.isApiReady" class="text-xs text-gray-500">No articles ingested yet from tracked sources.</p>
+    <p v-else class="text-xs text-gray-500">Waiting for API…</p>
   </div>
 </template>

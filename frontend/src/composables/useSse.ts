@@ -1,25 +1,31 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useInsightStore } from '@/stores/insightStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { fetchAnalytics, fetchFeed, fetchStats } from '@/composables/useInsightFeed'
 import type { Insight } from '@/types/insight'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const WAKING_API_DELAY_MS = 5_000
 const HEALTH_RETRY_MS = 2_000
-const HEALTH_MAX_MS = 120_000
-const REQUEST_TIMEOUT_MS = 15_000
+const HEALTH_MAX_MS = 180_000
+const HEALTH_REQUEST_TIMEOUT_MS = 10_000
+const BOOT_REQUEST_TIMEOUT_MS = 45_000
 const FEED_PAGE = 50
 const META_POLL_MS = 300_000
+const BOOT_LOAD_RETRIES = 5
+const BOOT_LOAD_RETRY_DELAYS_MS = [0, 3_000, 5_000, 8_000, 12_000]
 
 function apiUrl(path: string): string {
   const base = API_BASE.replace(/\/$/, '')
   return `${base}${path.startsWith('/') ? path : `/${path}`}`
 }
 
-function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = BOOT_REQUEST_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer))
 }
 
@@ -47,19 +53,19 @@ export function useSse() {
 
   function healthCheckUrl(): string {
     if (!API_BASE) return apiUrl('/api/settings/status')
-    return apiUrl('/actuator/health/liveness')
+    return apiUrl('/actuator/health/readiness')
   }
 
   async function waitForApi(): Promise<boolean> {
     const deadline = Date.now() + HEALTH_MAX_MS
     while (Date.now() < deadline) {
       try {
-        const res = await fetchWithTimeout(healthCheckUrl())
+        const res = await fetchWithTimeout(healthCheckUrl(), undefined, HEALTH_REQUEST_TIMEOUT_MS)
         if (res.ok) return true
       } catch {
         /* retry */
       }
-      await new Promise(r => setTimeout(r, HEALTH_RETRY_MS))
+      await sleep(HEALTH_RETRY_MS)
     }
     return false
   }
@@ -87,34 +93,67 @@ export function useSse() {
     }
   }
 
-  async function refreshMeta() {
+  async function refreshMeta(timeoutMs = BOOT_REQUEST_TIMEOUT_MS) {
     if (document.hidden) return
     try {
-      const [stats, analytics] = await Promise.all([fetchStats(), fetchAnalytics(7)])
-      store.setStats(stats)
-      store.setAnalytics(analytics)
+      const [statsRes, analyticsRes] = await Promise.all([
+        fetchWithTimeout(apiUrl('/api/insights/stats'), undefined, timeoutMs),
+        fetchWithTimeout(`${apiUrl('/api/insights/analytics')}?days=7`, undefined, timeoutMs),
+      ])
+      if (!statsRes.ok || !analyticsRes.ok) return
+      store.setStats(await statsRes.json())
+      store.setAnalytics(await analyticsRes.json())
     } catch {
       /* non-fatal */
     }
   }
 
-  async function loadInitial(): Promise<boolean> {
-    const settings = useSettingsStore()
+  async function loadInitialOnce(): Promise<'ok' | '401' | 'fail'> {
     try {
-      const page = await fetchFeed({ offset: 0, limit: FEED_PAGE, sort: 'processed' })
+      const params = new URLSearchParams({
+        offset: '0',
+        limit: String(FEED_PAGE),
+        sort: 'processed',
+      })
+      const res = await fetchWithTimeout(
+        `${apiUrl('/api/insights/feed')}?${params}`,
+        undefined,
+        BOOT_REQUEST_TIMEOUT_MS,
+      )
+      if (res.status === 401) return '401'
+      if (!res.ok) return 'fail'
+      const page = await res.json()
       store.setFeedPage(page.items, page.total, page.hasMore, false)
       await refreshMeta()
-      return true
-    } catch (e) {
-      if (e instanceof Error && e.message.includes('401')) {
+      return 'ok'
+    } catch {
+      return 'fail'
+    }
+  }
+
+  async function loadInitialWithRetry(): Promise<boolean> {
+    const settings = useSettingsStore()
+    for (let attempt = 0; attempt < BOOT_LOAD_RETRIES; attempt++) {
+      store.setBootLoadAttempt(attempt + 1)
+      if (BOOT_LOAD_RETRY_DELAYS_MS[attempt] > 0) {
+        await sleep(BOOT_LOAD_RETRY_DELAYS_MS[attempt])
+      }
+      const result = await loadInitialOnce()
+      if (result === 'ok') {
+        store.setBootLoadAttempt(0)
+        return true
+      }
+      if (result === '401') {
         settings.reportAiKeyIssue(
           'Insights API returned unauthorized. Add or refresh your OpenAI key in Settings.',
         )
         store.setFeedPage([], 0, false, false)
+        store.setBootLoadAttempt(0)
         return true
       }
-      return false
     }
+    store.setBootLoadAttempt(0)
+    return false
   }
 
   function startMetaPoll() {
@@ -126,6 +165,7 @@ export function useSse() {
 
   async function bootstrap() {
     clearWakingHint()
+    store.setBootLoadAttempt(0)
     store.setBootStatus('loading')
     scheduleWakingHint()
 
@@ -139,7 +179,7 @@ export function useSse() {
     store.setBootStatus('syncing')
     connect()
 
-    const loaded = await loadInitial()
+    const loaded = await loadInitialWithRetry()
     if (!loaded) {
       store.setBootStatus('error')
       return
