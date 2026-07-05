@@ -154,7 +154,7 @@ const statusLabel = computed(() => {
         <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-blue-400" />
         <p class="text-sm text-blue-200">
           <template v-if="store.bootStatus === 'waking-api'">
-            Starting intelligence engine — cloud API cold start can take up to four minutes.
+            Waking the intelligence engine — usually under a minute after idle; may take longer on a cold start.
           </template>
           <template v-else-if="store.bootStatus === 'syncing'">
             <span v-if="store.bootCycle > 1 && store.bootLoadAttempt <= 1">
